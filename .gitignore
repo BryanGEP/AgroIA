@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Variables de entorno (¡nunca subir la API key!)
+.env
+
+# Sistema
+.DS_Store
+Thumbs.db
