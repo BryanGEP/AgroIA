@@ -3,12 +3,15 @@
 Centralizar aqui la configuracion permite cambiar de proveedor de LLM o de
 modelo sin tocar el resto del codigo.
 """
+import logging
 import os
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,4 +24,4 @@ class Settings:
 settings = Settings()
 
 if not settings.groq_api_key:
-    print("[AgroIA] ADVERTENCIA: falta GROQ_API_KEY en el archivo .env")
+    logger.warning("[AgroIA] falta GROQ_API_KEY en el archivo .env")

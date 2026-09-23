@@ -7,6 +7,7 @@ __pycache__/
 venv/
 .venv/
 env/
+env
 
 # Variables de entorno (¡nunca subir la API key!)
 .env
