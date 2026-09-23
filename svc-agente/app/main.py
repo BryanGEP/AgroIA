@@ -1,8 +1,10 @@
 """Microservicio FastAPI que expone el agente AgroIA mediante POST /chat."""
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.agent import AgentError, chat
@@ -46,3 +48,9 @@ def chat_endpoint(req: ChatRequest):
             detail="El servicio de IA no está disponible, intenta más tarde",
         )
     return ChatResponse(response=answer, session_id=session_id)
+
+
+# Monta el front web (index.html, styles.css, app.js) en la raiz.
+# Va al final para que /health y /chat se resuelvan antes que el static files.
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

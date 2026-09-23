@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AgroIA — Asistente del aguacate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Encabezado -->
+    <header class="chat-header">
+      <div class="brand">
+        <span class="brand-avatar" aria-hidden="true">
+          <!-- Mascota aguacate -->
+          <svg viewBox="0 0 100 122" class="avocado" role="img" aria-label="AgroIA">
+            <ellipse cx="50" cy="116" rx="24" ry="5" class="av-shadow" />
+            <path class="av-skin" d="M50 6c-19 0-30 21-30 47 0 33 15 57 30 57s30-24 30-57C80 27 69 6 50 6z" />
+            <path class="av-flesh" d="M50 18c-13 0-21 17-21 39 0 27 11 47 21 47s21-20 21-47c0-22-8-39-21-39z" />
+            <circle class="av-pit" cx="50" cy="74" r="17" />
+            <circle class="av-eye" cx="43" cy="49" r="3.4" />
+            <circle class="av-eye" cx="57" cy="49" r="3.4" />
+            <path class="av-smile" d="M42 57c3 4 13 4 16 0" />
+            <circle class="av-cheek" cx="37" cy="56" r="3" />
+            <circle class="av-cheek" cx="63" cy="56" r="3" />
+          </svg>
+        </span>
+        <div class="brand-text">
+          <h1>AgroIA</h1>
+          <p>Asistente para productores de aguacate</p>
+        </div>
+      </div>
+      <span class="status" title="En línea"><span class="dot"></span>En línea</span>
+    </header>
+
+    <!-- Ventana de chat -->
+    <main class="chat-window" id="chatWindow">
+      <div class="welcome" id="welcome">
+        <span class="welcome-avatar" aria-hidden="true">
+          <svg viewBox="0 0 100 122" class="avocado big">
+            <ellipse cx="50" cy="116" rx="24" ry="5" class="av-shadow" />
+            <path class="av-skin" d="M50 6c-19 0-30 21-30 47 0 33 15 57 30 57s30-24 30-57C80 27 69 6 50 6z" />
+            <path class="av-flesh" d="M50 18c-13 0-21 17-21 39 0 27 11 47 21 47s21-20 21-47c0-22-8-39-21-39z" />
+            <circle class="av-pit" cx="50" cy="74" r="17" />
+            <circle class="av-eye" cx="43" cy="49" r="3.4" />
+            <circle class="av-eye" cx="57" cy="49" r="3.4" />
+            <path class="av-smile" d="M42 57c3 4 13 4 16 0" />
+            <circle class="av-cheek" cx="37" cy="56" r="3" />
+            <circle class="av-cheek" cx="63" cy="56" r="3" />
+          </svg>
+        </span>
+        <h2>¡Hola! Soy AgroIA 🥑</h2>
+        <p>Tu asistente para el cultivo del aguacate. Pregúntame lo que quieras.</p>
+        <div class="chips" id="chips">
+          <button class="chip">¿Cada cuánto debo regar mi aguacate?</button>
+          <button class="chip">¿Qué es la antracnosis?</button>
+          <button class="chip">Consejos para el suelo</button>
+          <button class="chip">¿Cómo detecto la roña?</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Barra para escribir -->
+    <footer class="composer">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" placeholder="Escribe tu pregunta sobre el aguacate…" autocomplete="off"></textarea>
+        <button id="send" class="send-btn" aria-label="Enviar">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 20.5v-6l8-2.5-8-2.5v-6l19 8.5-19 8.5z"/></svg>
+        </button>
+      </div>
+      <p class="disclaimer">AgroIA es orientativo y no sustituye el diagnóstico de un profesional.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
