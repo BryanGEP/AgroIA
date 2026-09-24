@@ -325,6 +325,26 @@ function restore() {
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 let isListening = false;
+let micNoticeShown = false;
+
+// Mensaje breve, mostrado una sola vez, cuando el usuario pasa el cursor o
+// intenta usar el microfono en un navegador sin soporte de dictado por voz.
+function showMicUnsupportedNotice() {
+  if (micNoticeShown || !micBtn) return;
+  micNoticeShown = true;
+
+  const notice = document.createElement("div");
+  notice.className = "mic-notice";
+  notice.setAttribute("role", "status");
+  notice.textContent = "El dictado por voz solo está disponible en Chrome o Edge.";
+  micBtn.insertAdjacentElement("afterend", notice);
+
+  requestAnimationFrame(() => notice.classList.add("show"));
+  setTimeout(() => {
+    notice.classList.remove("show");
+    setTimeout(() => notice.remove(), 250);
+  }, 3200);
+}
 
 function setListening(state) {
   isListening = state;
@@ -339,11 +359,16 @@ function setListening(state) {
 function setupSpeechRecognition() {
   if (!micBtn) return;
   if (!SpeechRecognitionCtor) {
-    // Navegador sin soporte: se desactiva el boton y se explica por que via tooltip.
-    micBtn.disabled = true;
-    const label = "El dictado por voz no está disponible en este navegador";
+    // Navegador sin soporte: se marca como deshabilitado visualmente (sin el
+    // atributo "disabled" real, para que hover/click sigan disparando eventos
+    // y puedan mostrar el aviso) y se explica por que via tooltip + aviso breve.
+    micBtn.classList.add("is-unsupported");
+    micBtn.setAttribute("aria-disabled", "true");
+    const label = "El dictado por voz no está disponible en este navegador (solo Chrome o Edge)";
     micBtn.title = label;
     micBtn.setAttribute("aria-label", label);
+    micBtn.addEventListener("mouseenter", showMicUnsupportedNotice);
+    micBtn.addEventListener("click", showMicUnsupportedNotice);
     return;
   }
   recognition = new SpeechRecognitionCtor();
