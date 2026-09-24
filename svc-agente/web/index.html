@@ -4,28 +4,34 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>AgroIA — Asistente del aguacate</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='88'%3E%F0%9F%A5%91%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
-    <!-- Encabezado -->
     <header class="chat-header">
       <div class="brand">
-        <span class="brand-avatar" aria-hidden="true">
-          <!-- Mascota aguacate -->
-          <svg viewBox="0 0 100 122" class="avocado" role="img" aria-label="AgroIA">
-            <ellipse cx="50" cy="116" rx="24" ry="5" class="av-shadow" />
-            <path class="av-skin" d="M50 6c-19 0-30 21-30 47 0 33 15 57 30 57s30-24 30-57C80 27 69 6 50 6z" />
-            <path class="av-flesh" d="M50 18c-13 0-21 17-21 39 0 27 11 47 21 47s21-20 21-47c0-22-8-39-21-39z" />
-            <circle class="av-pit" cx="50" cy="74" r="17" />
-            <circle class="av-eye" cx="43" cy="49" r="3.4" />
-            <circle class="av-eye" cx="57" cy="49" r="3.4" />
-            <path class="av-smile" d="M42 57c3 4 13 4 16 0" />
-            <circle class="av-cheek" cx="37" cy="56" r="3" />
-            <circle class="av-cheek" cx="63" cy="56" r="3" />
+        <span class="brand-avatar" id="headerAvatar" aria-hidden="true">
+          <svg viewBox="0 0 120 140" class="avocado">
+            <path class="av-stem" d="M60 22 C60 12 60 8 60 3" />
+            <path class="av-leaf" d="M60 12 C49 3 38 6 38 15 C47 19 57 16 60 12 Z" />
+            <path class="av-skin" d="M60 14 C38 14 27 38 27 68 C27 104 42 128 60 128 C78 128 93 104 93 68 C93 38 82 14 60 14 Z" />
+            <path class="av-flesh" d="M60 26 C44 26 36 46 36 70 C36 100 47 118 60 118 C73 118 84 100 84 70 C84 46 76 26 60 26 Z" />
+            <path class="av-flesh-hi" d="M50 34 C43 40 41 53 42 65 C47 57 53 44 57 37 C55 35 52 33 50 34 Z" />
+            <circle class="av-pit" cx="60" cy="90" r="18" />
+            <ellipse class="av-pit-hi" cx="54" cy="84" rx="6" ry="4" />
+            <g class="av-eyes">
+              <ellipse class="av-eye" cx="51" cy="54" rx="4.2" ry="5.2" />
+              <ellipse class="av-eye" cx="69" cy="54" rx="4.2" ry="5.2" />
+              <circle class="av-eye-shine" cx="52.6" cy="52" r="1.5" />
+              <circle class="av-eye-shine" cx="70.6" cy="52" r="1.5" />
+            </g>
+            <circle class="av-cheek" cx="43" cy="62" r="3.6" />
+            <circle class="av-cheek" cx="77" cy="62" r="3.6" />
+            <path class="av-smile" d="M52 64 c4 5 12 5 16 0" />
           </svg>
         </span>
         <div class="brand-text">
@@ -33,23 +39,37 @@
           <p>Asistente para productores de aguacate</p>
         </div>
       </div>
-      <span class="status" title="En línea"><span class="dot"></span>En línea</span>
+      <div class="header-actions">
+        <button id="soundToggle" class="icon-btn" type="button" title="Activar sonido" aria-label="Activar sonido" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.59 3 2.7-2.71-1.42-1.42L15.17 10l-2.7-2.71-1.42 1.42L13.76 11.4l-2.71 2.7 1.42 1.42 2.7-2.71 2.71 2.71 1.42-1.42z"/></svg>
+        </button>
+        <button id="newChat" class="icon-btn" title="Nueva conversación" aria-label="Nueva conversación">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 5V2L7 7l5 5V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-7z"/></svg>
+        </button>
+        <span class="status" title="En línea"><span class="dot"></span>En línea</span>
+      </div>
     </header>
 
-    <!-- Ventana de chat -->
     <main class="chat-window" id="chatWindow">
       <div class="welcome" id="welcome">
         <span class="welcome-avatar" aria-hidden="true">
-          <svg viewBox="0 0 100 122" class="avocado big">
-            <ellipse cx="50" cy="116" rx="24" ry="5" class="av-shadow" />
-            <path class="av-skin" d="M50 6c-19 0-30 21-30 47 0 33 15 57 30 57s30-24 30-57C80 27 69 6 50 6z" />
-            <path class="av-flesh" d="M50 18c-13 0-21 17-21 39 0 27 11 47 21 47s21-20 21-47c0-22-8-39-21-39z" />
-            <circle class="av-pit" cx="50" cy="74" r="17" />
-            <circle class="av-eye" cx="43" cy="49" r="3.4" />
-            <circle class="av-eye" cx="57" cy="49" r="3.4" />
-            <path class="av-smile" d="M42 57c3 4 13 4 16 0" />
-            <circle class="av-cheek" cx="37" cy="56" r="3" />
-            <circle class="av-cheek" cx="63" cy="56" r="3" />
+          <svg viewBox="0 0 120 140" class="avocado big">
+            <path class="av-stem" d="M60 22 C60 12 60 8 60 3" />
+            <path class="av-leaf" d="M60 12 C49 3 38 6 38 15 C47 19 57 16 60 12 Z" />
+            <path class="av-skin" d="M60 14 C38 14 27 38 27 68 C27 104 42 128 60 128 C78 128 93 104 93 68 C93 38 82 14 60 14 Z" />
+            <path class="av-flesh" d="M60 26 C44 26 36 46 36 70 C36 100 47 118 60 118 C73 118 84 100 84 70 C84 46 76 26 60 26 Z" />
+            <path class="av-flesh-hi" d="M50 34 C43 40 41 53 42 65 C47 57 53 44 57 37 C55 35 52 33 50 34 Z" />
+            <circle class="av-pit" cx="60" cy="90" r="18" />
+            <ellipse class="av-pit-hi" cx="54" cy="84" rx="6" ry="4" />
+            <g class="av-eyes">
+              <ellipse class="av-eye" cx="51" cy="54" rx="4.2" ry="5.2" />
+              <ellipse class="av-eye" cx="69" cy="54" rx="4.2" ry="5.2" />
+              <circle class="av-eye-shine" cx="52.6" cy="52" r="1.5" />
+              <circle class="av-eye-shine" cx="70.6" cy="52" r="1.5" />
+            </g>
+            <circle class="av-cheek" cx="43" cy="62" r="3.6" />
+            <circle class="av-cheek" cx="77" cy="62" r="3.6" />
+            <path class="av-smile" d="M52 64 c4 5 12 5 16 0" />
           </svg>
         </span>
         <h2>¡Hola! Soy AgroIA 🥑</h2>
@@ -63,10 +83,12 @@
       </div>
     </main>
 
-    <!-- Barra para escribir -->
     <footer class="composer">
       <div class="composer-inner">
         <textarea id="input" rows="1" placeholder="Escribe tu pregunta sobre el aguacate…" autocomplete="off"></textarea>
+        <button id="micBtn" class="icon-btn mic-btn" type="button" title="Dictar por voz" aria-label="Dictar pregunta por voz" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+        </button>
         <button id="send" class="send-btn" aria-label="Enviar">
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 20.5v-6l8-2.5-8-2.5v-6l19 8.5-19 8.5z"/></svg>
         </button>
