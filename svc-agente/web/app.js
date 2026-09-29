@@ -1,6 +1,6 @@
-/* ===== AgroIA — lógica del chat ===== */
+/* AgroIA — lógica del chat */
 
-// Mismo origen (servido por FastAPI). Si abres el HTML aparte: "http://127.0.0.1:8000"
+
 const API_BASE = "";
 
 const chatWindow = document.getElementById("chatWindow");
@@ -11,11 +11,14 @@ const newChatBtn = document.getElementById("newChat");
 const headerAvatar = document.getElementById("headerAvatar");
 const soundToggleBtn = document.getElementById("soundToggle");
 const micBtn = document.getElementById("micBtn");
+const launcher = document.getElementById("chatLauncher");
+const chatPanel = document.getElementById("chatPanel");
+const closeChatBtn = document.getElementById("closeChat");
 
 let sessionId = safeGet("agroia_session") || null;
 let history = loadHistory();
 
-// Por defecto el sonido esta silenciado; el usuario debe activarlo explicitamente.
+// Por defecto el sonido se encuentra silenciado
 let soundEnabled = safeGet("agroia_sound_enabled") === "true";
 
 // SVG de la mascota para el avatar de los mensajes del bot.
@@ -36,14 +39,14 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" width="14" height="14"><path fill="c
 const SOUND_ON_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
 const SOUND_OFF_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.59 3 2.7-2.71-1.42-1.42L15.17 10l-2.7-2.71-1.42 1.42L13.76 11.4l-2.71 2.7 1.42 1.42 2.7-2.71 2.71 2.71 1.42-1.42z"/></svg>`;
 
-/* ---------- Almacenamiento seguro ---------- */
+/* Almacenamiento seguro */
 function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 function safeRemove(k) { try { localStorage.removeItem(k); } catch {} }
 function loadHistory() { try { return JSON.parse(safeGet("agroia_history") || "[]"); } catch { return []; } }
 function saveHistory() { safeSet("agroia_history", JSON.stringify(history)); }
 
-/* ---------- Limpieza de respuesta ---------- */
+/* Limpieza de respuesta */
 // Si el LLM envuelve TODA la respuesta en un unico bloque de codigo
 // (``` o ```markdown ... ```), se quitan solo esas comillas triples de
 // apertura/cierre. No afecta bloques de codigo que esten en medio del texto,
@@ -54,7 +57,7 @@ function stripWrappingCodeFence(text) {
   return match ? match[1] : text;
 }
 
-/* ---------- Markdown seguro (escapa primero, luego formatea) ---------- */
+/* Markdown seguro (escapa primero, luego formatea) */
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -92,7 +95,7 @@ function renderMarkdown(text) {
   return html || "<p></p>";
 }
 
-/* ---------- Efecto de escritura (typewriter) ---------- */
+/* Efecto de escritura (typewriter) */
 // Revela el texto plano progresivamente y solo al final lo re-renderiza como
 // Markdown, para que nunca quede una etiqueta HTML a medio formar. Respeta
 // prefers-reduced-motion mostrando la respuesta completa sin animar.
@@ -124,7 +127,7 @@ function typeWriter(bubbleEl, fullText, onDone) {
   }, INTERVAL_MS);
 }
 
-/* ---------- Copiar al portapapeles ---------- */
+/* Copiar al portapapeles */
 async function copyToClipboard(text) {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
@@ -160,7 +163,7 @@ function buildCopyButton(text) {
   return btn;
 }
 
-/* ---------- Render de mensajes ---------- */
+/* Render de mensajes */
 function buildMessage(role, text, { isError = false, animate = false } = {}) {
   const msg = document.createElement("div");
   msg.className = "msg " + (role === "user" ? "user" : "bot") + (isError ? " error" : "");
@@ -211,7 +214,7 @@ function showTyping() {
 function hideTyping() { const t = document.getElementById("typing"); if (t) t.remove(); }
 function scrollToBottom() { chatWindow.scrollTop = chatWindow.scrollHeight; }
 
-/* ---------- Sonido sutil de notificacion (Web Audio API, sin archivos) ---------- */
+/* Sonido sutil de notificacion (Web Audio API, sin archivos) */
 let audioCtx = null;
 function getAudioCtx() {
   const AudioCtor = window.AudioContext || window.webkitAudioContext;
@@ -254,7 +257,7 @@ function toggleSound() {
   updateSoundButton();
 }
 
-/* ---------- Envío ---------- */
+/* Envío */
 async function sendMessage(text) {
   const message = (text ?? input.value).trim();
   if (!message) return;
@@ -302,7 +305,7 @@ function autoResize() {
   input.style.height = Math.min(input.scrollHeight, 140) + "px";
 }
 
-/* ---------- Nueva conversación ---------- */
+/* Nueva conversación */
 function newConversation() {
   history = [];
   saveHistory();
@@ -311,7 +314,7 @@ function newConversation() {
   location.reload();
 }
 
-/* ---------- Restaurar historial al cargar ---------- */
+/* Restaurar historial al cargar */
 function restore() {
   if (history.length) {
     const welcome = document.getElementById("welcome");
@@ -321,7 +324,7 @@ function restore() {
   }
 }
 
-/* ---------- Entrada por voz (Web Speech API) ---------- */
+/* Entrada por voz (Web Speech API) */
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 let isListening = false;
@@ -401,7 +404,18 @@ function toggleListening() {
   }
 }
 
-/* ---------- Eventos ---------- */
+/* Abrir / cerrar el panel del chat */
+function setChatOpen(open) {
+  chatPanel.classList.toggle("is-open", open);
+  chatPanel.setAttribute("aria-hidden", String(!open));
+  launcher.classList.toggle("is-open", open);
+  launcher.setAttribute("aria-expanded", String(open));
+  launcher.setAttribute("aria-label", open ? "Cerrar chat de AgroIA" : "Abrir chat de AgroIA");
+  safeSet("agroia_chat_open", String(open));
+  if (open) { scrollToBottom(); setTimeout(() => input.focus(), 250); }
+}
+
+/* Eventos */
 sendBtn.addEventListener("click", () => sendMessage());
 input.addEventListener("input", autoResize);
 input.addEventListener("keydown", (e) => {
@@ -411,8 +425,11 @@ if (chips) chips.addEventListener("click", (e) => { if (e.target.classList.conta
 if (newChatBtn) newChatBtn.addEventListener("click", newConversation);
 if (soundToggleBtn) soundToggleBtn.addEventListener("click", toggleSound);
 if (micBtn) micBtn.addEventListener("click", toggleListening);
+launcher.addEventListener("click", () => setChatOpen(!chatPanel.classList.contains("is-open")));
+if (closeChatBtn) closeChatBtn.addEventListener("click", () => setChatOpen(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setChatOpen(false); });
 
 restore();
 setupSpeechRecognition();
 updateSoundButton();
-input.focus();
+setChatOpen(safeGet("agroia_chat_open") === "true");
