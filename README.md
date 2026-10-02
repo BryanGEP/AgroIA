@@ -11,7 +11,7 @@ Proyecto académico (Ingeniería en Sistemas Computacionales — TecNM Jiquilpan
 | `svc-agente/` | Microservicio del agente conversacional (LangChain + FastAPI). | [README](svc-agente/README.md) |
 | `svc-gestion/` | (Entrega 2) Backend de gestión con Django/DRF. | Próximamente |
 | `svc-ingesta/` | (Entrega 4) Pipeline de ingesta para RAG. | Próximamente |
-| `docs/` | Documentación del proyecto (sprints, entregables). | — |
+| `docs/` | Documentación del proyecto (sprints, entregables). |  [Entregable 1](docs/Entregable1_AgroIA.docx) |
 
 ## Entregas
 
