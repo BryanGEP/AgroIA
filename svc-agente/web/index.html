@@ -7,12 +7,19 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='88'%3E%F0%9F%A5%91%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Aquí luego irá la página de Django -->
-  <main class="site-placeholder"></main>
+  <!-- Aquí luego irá la página de Django. El fondo "aurora" es decorativo y
+       temporal: solo para mostrar el panel de vidrio mientras no hay contenido real. -->
+  <main class="site-placeholder" aria-hidden="true">
+    <div class="aurora">
+      <span class="blob blob-a"></span>
+      <span class="blob blob-b"></span>
+      <span class="blob blob-c"></span>
+    </div>
+  </main>
 
   <button id="chatLauncher" class="chat-launcher" type="button"
           aria-label="Abrir chat de AgroIA" aria-expanded="false" aria-controls="chatPanel">

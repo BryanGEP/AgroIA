@@ -164,7 +164,12 @@ function buildCopyButton(text) {
 }
 
 /* Render de mensajes */
-function buildMessage(role, text, { isError = false, animate = false } = {}) {
+function formatTime(time) {
+  try { return new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  catch { return ""; }
+}
+
+function buildMessage(role, text, { isError = false, animate = false, time = null } = {}) {
   const msg = document.createElement("div");
   msg.className = "msg " + (role === "user" ? "user" : "bot") + (isError ? " error" : "");
   if (role === "bot") {
@@ -187,7 +192,18 @@ function buildMessage(role, text, { isError = false, animate = false } = {}) {
   }
   bubbleWrap.appendChild(bubble);
 
-  if (role === "bot" && !isError) bubbleWrap.appendChild(buildCopyButton(text));
+  if (role === "bot" && !isError) {
+    const meta = document.createElement("div");
+    meta.className = "msg-meta";
+    if (time) {
+      const timeEl = document.createElement("span");
+      timeEl.className = "msg-time";
+      timeEl.textContent = "AgroIA · " + formatTime(time);
+      meta.appendChild(timeEl);
+    }
+    meta.appendChild(buildCopyButton(text));
+    bubbleWrap.appendChild(meta);
+  }
 
   msg.appendChild(bubbleWrap);
   return msg;
@@ -198,9 +214,10 @@ function addMessage(role, rawText, { isError = false, animate = false } = {}) {
   if (welcome) welcome.remove();
 
   const text = (role === "bot" && !isError) ? stripWrappingCodeFence(rawText) : rawText;
-  chatWindow.appendChild(buildMessage(role, text, { isError, animate }));
+  const time = (role === "bot" && !isError) ? Date.now() : null;
+  chatWindow.appendChild(buildMessage(role, text, { isError, animate, time }));
   scrollToBottom();
-  if (!isError) { history.push({ role, text }); saveHistory(); }
+  if (!isError) { history.push({ role, text, time }); saveHistory(); }
 }
 
 function showTyping() {
@@ -319,7 +336,7 @@ function restore() {
   if (history.length) {
     const welcome = document.getElementById("welcome");
     if (welcome) welcome.remove();
-    for (const m of history) chatWindow.appendChild(buildMessage(m.role, m.text));
+    for (const m of history) chatWindow.appendChild(buildMessage(m.role, m.text, { time: m.time || null }));
     scrollToBottom();
   }
 }
