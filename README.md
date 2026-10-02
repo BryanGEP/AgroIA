@@ -16,6 +16,7 @@ Proyecto académico (Ingeniería en Sistemas Computacionales — TecNM Jiquilpan
 ## Entregas
 
 - **Entrega 1:** el agente mínimo vive en [`svc-agente/`](svc-agente/). Consulta su [README](svc-agente/README.md) para instalar y ejecutar.
+- [Documento del Entregable 1](docs/Entregable1_AgroIA.docx)
 
 ## Cómo contribuir
 
