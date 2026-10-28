@@ -1,5 +1,11 @@
 -r requirements.txt
 
-# Dependencias solo para testing (no se instalan en produccion)
-pytest>=8.0
-httpx>=0.27
+# Dependencias solo para pruebas (no se instalan en la imagen de produccion).
+# El TestClient de FastAPI usa httpx/httpx2, que ya vienen fijados en requirements.txt.
+pytest==9.1.1
+
+# --- Transitivas de pytest ---
+iniconfig==2.3.1
+pluggy==1.7.0
+Pygments==2.21.0
+colorama==0.4.6; sys_platform == "win32"
