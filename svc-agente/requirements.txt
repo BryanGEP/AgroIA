@@ -4,6 +4,10 @@
 # referencia la imagen de Docker que ya respondio preguntas reales (22/10/2026).
 # Para actualizar: cambiar las directas, reinstalar en un venv limpio de 3.12 y
 # volver a copiar aqui el pip freeze (ver README, "Dependencias").
+#
+# torch se instala en su version solo CPU (sin CUDA, mucho mas ligera) desde el
+# indice de PyTorch. Ese indice tiene ruedas para Linux y Windows; no para macOS.
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 # --- Directas (las importa el codigo o arrancan el servicio) ---
 fastapi==0.161.1
@@ -12,40 +16,82 @@ langchain-core==1.7.0
 langchain-groq==1.1.3
 python-dotenv==1.2.4
 pydantic==2.14.1
+PyYAML==6.0.3
+
+# --- RAG: ingesta y recuperacion (embeddings locales + pgvector) ---
+langchain-postgres==0.0.19
+psycopg[binary]==3.3.6
+langchain-huggingface==1.2.3
+langchain-text-splitters==1.1.3
+sentence-transformers==6.2.0
+transformers==5.21.0
+torch==2.14.1+cpu
 
 # --- Transitivas, fijadas para que cada build instale lo mismo ---
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+asyncpg==0.32.0
 certifi==2026.10.19
 charset-normalizer==3.5.2
 click==8.5.0
+cloudpickle==3.1.2
 distro==1.9.0
+filelock==4.2.4
+fsspec==2026.9.0
+greenlet==3.5.6
 groq==0.37.1
 h11==0.16.0
-httpcore==1.0.9
+hf-xet==1.7.0
 httpcore2==2.16.0
+httpcore==1.0.9
 httptools==0.9.0
-httpx==0.28.1
 httpx2==2.16.0
+httpx==0.28.1
+huggingface_hub==1.33.0
 idna==3.20
+Jinja2==3.1.6
+joblib==1.6.0
 jsonpatch==1.36
 jsonpointer==3.4
 langchain-protocol==0.0.20
 langsmith==0.14.12
+markdown-it-py==4.2.0
+MarkupSafe==3.0.4
+mdurl==0.1.2
+mpmath==1.3.0
+narwhals==2.28.0
+networkx==3.7
+numpy==2.5.4
 opentelemetry-api==1.45.1
 orjson==3.13.0
 packaging==26.3
+pgvector==0.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3
 pydantic_core==2.50.1
-PyYAML==6.0.3
-requests==2.34.2
+Pygments==2.21.0
+regex==2026.9.29
 requests-toolbelt==1.0.0
+requests==2.34.2
+rich==15.0.0
+safetensors==0.8.0
+scikit-learn==1.9.1
+scipy==1.18.1
+setuptools==84.2.1
+shellingham==1.5.4
 sniffio==1.3.1
+SQLAlchemy==2.1.6
 starlette==1.9.0
+sympy==1.14.0
 tenacity==9.2.1
+threadpoolctl==3.7.0
+tokenizers==0.23.3
+tqdm==4.70.1
 truststore==0.10.5
-typing-inspection==0.4.4
+typer==0.27.3
 typing_extensions==4.16.0
+typing-inspection==0.4.4
 urllib3==2.8.0
 uuid_utils==0.18.0
 watchfiles==1.3.0
@@ -53,3 +99,5 @@ websockets==16.1.1
 xxhash==4.0.2
 zstandard==0.25.0
 uvloop==0.23.0; sys_platform != "win32"
+colorama==0.4.6; sys_platform == "win32"
+tzdata==2026.5; sys_platform == "win32"
