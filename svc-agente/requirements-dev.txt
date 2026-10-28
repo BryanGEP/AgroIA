@@ -4,8 +4,6 @@
 # El TestClient de FastAPI usa httpx/httpx2, que ya vienen fijados en requirements.txt.
 pytest==9.1.1
 
-# --- Transitivas de pytest ---
+# --- Transitivas de pytest (Pygments y colorama ya vienen en requirements.txt) ---
 iniconfig==2.3.1
 pluggy==1.7.0
-Pygments==2.21.0
-colorama==0.4.6; sys_platform == "win32"

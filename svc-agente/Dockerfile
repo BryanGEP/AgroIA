@@ -7,6 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY web ./web
+# Ingesta del RAG: se corre aparte con `python -m ingesta.cargar` (ver README)
+COPY ingesta ./ingesta
+COPY conocimiento ./conocimiento
 
 EXPOSE 8000
 
