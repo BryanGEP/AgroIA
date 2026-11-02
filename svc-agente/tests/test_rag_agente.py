@@ -59,8 +59,8 @@ def test_el_agente_registra_la_herramienta():
     with patch("app.agent.get_llm", return_value=modelo):
         chat_with_sources("Hola")
 
-    assert TOOLS == [buscar_conocimiento]
-    assert [t.name for t in modelo.tools_recibidas] == ["buscar_conocimiento"]
+    assert buscar_conocimiento in TOOLS
+    assert "buscar_conocimiento" in [t.name for t in modelo.tools_recibidas]
 
 
 def test_la_descripcion_dice_cuando_usarla():

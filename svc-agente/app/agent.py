@@ -8,7 +8,8 @@ El flujo esta separado en piezas:
     build_messages -> invoke_model -> extract_answer (+ extract_sources)
 
 invoke_model usa create_agent de LangChain: el modelo decide si llama a las
-herramientas de TOOLS (hoy, la busqueda en la base de conocimiento del RAG) y se
+herramientas de TOOLS (la busqueda en la base de conocimiento del RAG y las dos del
+sistema basado en reglas) y se
 devuelve la conversacion completa, con los mensajes intermedios de las herramientas.
 extract_answer toma la respuesta final y extract_sources junta las fuentes de los
 fragmentos que recupero la herramienta.
@@ -32,13 +33,13 @@ from langchain_groq import ChatGroq
 
 from app.config import settings
 from app.prompt import SYSTEM_PROMPT
-from app.tools import buscar_conocimiento
+from app.tools import buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto
 
 logger = logging.getLogger(__name__)
 
-# Herramientas del agente. Siguientes: motor de reglas (SBR), modulo Bayes y, en la
-# Entrega 3, el modelo de vision.
-TOOLS = [buscar_conocimiento]
+# Herramientas del agente: RAG (explica y fundamenta) y SBR (orienta y clasifica).
+# Siguientes: modulo Bayes y, en la Entrega 3, el modelo de vision.
+TOOLS = [buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto]
 
 # Tope de pasos del agente (cada busqueda son 2: la llamada a la herramienta y su
 # resultado). Evita que el modelo se quede buscando en bucle.
