@@ -15,7 +15,8 @@ svc-agente/
 │   ├── memory.py      # Memoria conversacional por sesión
 │   ├── prompt.py      # Prompt del sistema (rol y límites)
 │   ├── rag.py         # Recuperación del RAG: embeddings e5, pgvector, buscar_conocimiento
-│   └── tools.py       # Herramientas del agente (buscar_conocimiento)
+│   ├── reglas.py      # Sistema basado en reglas (SBR): síntomas y parámetros del huerto
+│   └── tools.py       # Herramientas del agente (RAG y SBR)
 ├── conocimiento/      # Base de conocimiento del aguacate (Markdown con frontmatter)
 ├── ingesta/           # Ingesta del RAG (se corre aparte: python -m ingesta.cargar)
 │   ├── documentos.py  # Lee los .md y su frontmatter
@@ -206,10 +207,54 @@ Al arrancar, el servicio precarga en segundo plano el modelo de embeddings y la 
 
 Las pruebas del RAG (`tests/test_ingesta.py`, `tests/test_rag.py`, `tests/test_rag_agente.py`) usan un vector store en memoria, embeddings falsos y un modelo falso con `tool_calls` simulados: no necesitan Postgres, Groq ni descargan modelos.
 
+## 7. Sistema basado en reglas (SBR)
+
+Lógica determinística "SI ... ENTONCES ..." que **orienta y clasifica** a partir de hechos; el RAG **explica y fundamenta**. El agente puede combinarlos: primero las reglas para orientar y después la base de conocimiento para explicar la causa.
+
+- **Motor (`app/reglas.py`):** módulo puro, sin LLM ni dependencias del agente. Las reglas son datos (listas `REGLAS_SINTOMAS`, `RANGOS` y `REGLAS_PARAMETROS`): agregar una regla es agregar un elemento.
+- **Herramientas (`app/tools.py`):** dos, una por capacidad, para que el modelo sepa cuál usar:
+  - `diagnosticar_sintomas(sintomas, otros_sintomas)`: el modelo traduce lo que describe el productor a códigos de un catálogo (`SINTOMAS`) que van como `enum` en el esquema de la herramienta. Lo que no encaja va como texto en `otros_sintomas` y se avisa que no se evaluó.
+  - `evaluar_huerto(ph_suelo, ph_agua, tipo_suelo, encharcamiento, edad_arboles, hectareas)`: solo los datos que dio el productor.
+
+### A) Diagnóstico por síntomas
+
+Cada regla tiene `si` (hechos obligatorios), `apoyan` (refuerzan, no obligatorios) y `excluye`. Se derivan de la base de conocimiento, y cada conclusión indica su documento para que el agente la explique con el RAG.
+
+| Si se observa | Orienta a |
+|---|---|
+| Manchas oscuras hundidas en el fruto (apoyan: pulpa podrida, esporas rosadas) | Antracnosis |
+| Costras ásperas, corchosas y levantadas | Roña |
+| Cicatrices ásperas o plateadas en la cáscara | Trips |
+| Hojas bronceadas, **sin** manchas plateadas en el envés | Araña roja / ácaros |
+| Manchas plateadas en el envés bajo telarañas | Ácaro persea |
+| Daño o galerías en el hueso | Barrenador del hueso (grave, plaga reglamentada) |
+| Marchitez + raíces dañadas + encharcamiento | Posible Phytophthora (grave) |
+
+Reglas transversales: con **más de una causa** se pide validar en campo; con una regla a medias se reporta como **datos incompletos** y se dice qué falta; si **nada coincide** no se fuerza una conclusión; si hay una causa **grave** se pide acudir a un profesional. Siempre se recuerda que es orientativo y no indica tratamientos.
+
+### B) Parámetros del huerto
+
+| Parámetro | Rangos | Origen |
+|---|---|---|
+| pH del suelo | < 5.5 ácido · 5.5–7.0 adecuado · 7.0–7.5 límite superior · > 7.5 alcalino (riesgo de clorosis) | `suelo/ph-y-drenaje.md` (marcado *verificar*) |
+| pH del agua de riego | 6.5–7.5 adecuada; fuera, conviene ajustar | acordado con el equipo, sin fuente en la base |
+| Tipo de suelo | arcilloso: drenaje deficiente, riesgo alto de Phytophthora · arenoso · franco · volcánico | `suelo/ph-y-drenaje.md` |
+| Encharcamiento | sí: riesgo alto de Phytophthora | `suelo/ph-y-drenaje.md`, `riego/estres-hidrico.md` |
+| Edad de los árboles | < 3 años joven · ≥ 3 en producción | acordado con el equipo |
+| Hectáreas | solo contexto, no dispara reglas | — |
+
+**Los rangos numéricos son orientativos y provisionales** (no confirmados con una fuente oficial para Michoacán): el resultado siempre recomienda confirmarlos con un análisis de suelo o agua en laboratorio y con un técnico. No agregues umbrales que no estén en la base ni acordados con el equipo.
+
+El SBR **nunca da dosis, productos ni recetas**: eso lo define el técnico o agrónomo. Las fuentes de `/chat` siguen saliendo solo del RAG.
+
+**Límite de Groq:** con las herramientas del SBR, cada llamada al LLM manda unos 2.3–3.3k tokens y una pregunta que combina reglas y RAG hace 3–4 llamadas. En el plan gratuito eso provoca respuestas `429` y el cliente reintenta tras esperar de 3 a 23 s, así que una pregunta puede tardar más de 30 s aunque el modelo responda en 1–2 s por llamada.
+
+Pruebas: `tests/test_reglas.py` (motor solo) y `tests/test_reglas_agente.py` (herramientas con el modelo falso).
+
 ## Notas
 
 - El agente **no sustituye** el diagnóstico de un profesional; sus respuestas
   son orientativas y deben validarse en campo.
-- Arquitectura *tool-ready*: el RAG ya es una herramienta del agente (`TOOLS` en
-  `app/agent.py`); en la Entrega 2 se agregarán reglas y Bayes, y en la Entrega 3 el
-  modelo de visión, sin reescribir el núcleo.
+- Arquitectura *tool-ready*: el RAG y el SBR ya son herramientas del agente (`TOOLS`
+  en `app/agent.py`); falta el módulo Bayes y, en la Entrega 3, el modelo de visión,
+  sin reescribir el núcleo.
