@@ -4,30 +4,45 @@ El agente es SIN ESTADO: recibe el historial de la conversacion desde afuera y n
 guarda nada. Quien lo llama (el endpoint /chat, el CLI o, mas adelante, el servicio
 de gestion con la base de datos) decide donde vive el historial.
 
-El flujo esta separado en piezas para que el RAG y las herramientas entren limpio:
-    build_messages -> invoke_model -> extract_answer
+El flujo esta separado en piezas:
+    build_messages -> invoke_model -> extract_answer (+ extract_sources)
 
-Arquitectura "tool-ready": hoy el agente solo conversa. Cuando existan
-herramientas, la lista TOOLS se llenara y invoke_model pasara a un agente con
-function calling; extract_answer ya lee el ultimo AIMessage y tolera los mensajes
-intermedios de las herramientas.
+invoke_model usa create_agent de LangChain: el modelo decide si llama a las
+herramientas de TOOLS (hoy, la busqueda en la base de conocimiento del RAG) y se
+devuelve la conversacion completa, con los mensajes intermedios de las herramientas.
+extract_answer toma la respuesta final y extract_sources junta las fuentes de los
+fragmentos que recupero la herramienta.
 """
 import logging
+import re
+import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 
+from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_groq import ChatGroq
 
 from app.config import settings
 from app.prompt import SYSTEM_PROMPT
+from app.tools import buscar_conocimiento
 
 logger = logging.getLogger(__name__)
 
-# Aqui se registraran las herramientas del agente en futuras entregas:
-#   - Entrega 2: retriever de RAG, motor de reglas (SBR), modulo Bayes.
-#   - Entrega 3: modelo de vision (clasificacion de aguacate).
-TOOLS = []
+# Herramientas del agente. Siguientes: motor de reglas (SBR), modulo Bayes y, en la
+# Entrega 3, el modelo de vision.
+TOOLS = [buscar_conocimiento]
+
+# Tope de pasos del agente (cada busqueda son 2: la llamada a la herramienta y su
+# resultado). Evita que el modelo se quede buscando en bucle.
+MAX_AGENT_STEPS = 10
 
 # Formato del historial: [{"role": "user" | "assistant", "content": "..."}]
 History = Sequence[dict]
@@ -37,6 +52,14 @@ _llm = None
 
 class AgentError(Exception):
     """Error de dominio: el agente no pudo generar una respuesta valida."""
+
+
+@dataclass
+class AgentReply:
+    """Respuesta final del agente y las fuentes de lo que consulto para darla."""
+
+    answer: str
+    sources: list[str] = field(default_factory=list)
 
 
 def build_llm() -> ChatGroq:
@@ -74,13 +97,27 @@ def build_messages(message: str, history: History | None = None) -> list[BaseMes
     return messages
 
 
-def invoke_model(messages: list[BaseMessage]) -> BaseMessage:
-    """Llama al modelo. Cualquier fallo (red, timeout, proveedor) se vuelve AgentError."""
+def build_agent():
+    """Agente con herramientas. El prompt del sistema ya viene como primer mensaje
+    (build_messages), por eso no se pasa system_prompt aqui."""
+    return create_agent(model=get_llm(), tools=TOOLS)
+
+
+def invoke_model(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Corre el agente y devuelve todos los mensajes (entrada, herramientas y respuesta).
+
+    Cualquier fallo (red, timeout, proveedor, demasiados pasos) se vuelve AgentError.
+    Un fallo de la base de conocimiento NO llega aqui: la herramienta lo convierte en
+    un aviso para el modelo (ver app/tools.py).
+    """
     try:
-        return get_llm().invoke(messages)
+        result = build_agent().invoke(
+            {"messages": messages}, config={"recursion_limit": MAX_AGENT_STEPS}
+        )
     except Exception as exc:
-        logger.error("Fallo al invocar el LLM: %s", type(exc).__name__)
+        logger.error("Fallo al invocar el agente: %s", type(exc).__name__)
         raise AgentError("El LLM no respondio correctamente") from exc
+    return result["messages"]
 
 
 def _content_to_text(content) -> str:
@@ -121,12 +158,84 @@ def extract_answer(result: BaseMessage | Sequence[BaseMessage]) -> str:
     return answer
 
 
-def chat(message: str, history: History | None = None) -> str:
-    """Responde un mensaje usando el historial que recibe. No guarda nada.
+# Linea final con los documentos usados: "FUENTES: riego/x.md, suelo/y.md" o "FUENTES: ninguna"
+_SOURCES_LINE = re.compile(r"^[\s*_]*fuentes[\s*_]*:[\s*_]*(.*?)[\s*_]*$", re.IGNORECASE)
+
+
+def split_cited_sources(answer: str) -> tuple[str, set[str] | None]:
+    """Separa la linea final "FUENTES: ..." que pide el prompt del resto de la respuesta.
+
+    Devuelve (texto sin esa linea, archivos citados). Los archivos citados son None si
+    el modelo no escribio la linea, y un conjunto vacio si escribio "ninguna".
+    Tolera adornos de Markdown como **FUENTES:** o etiquetas entre `comillas`.
+    """
+    cited: set[str] | None = None
+    kept = []
+    for line in answer.splitlines():
+        match = _SOURCES_LINE.match(line)
+        if match is None:
+            kept.append(line)
+            continue
+        items = [i.strip(" `*_[]") for i in match.group(1).split(",")]
+        cited = (cited or set()) | {i for i in items if i and i.lower() != "ninguna"}
+    if cited is not None:
+        # El modelo a veces separa la linea con una regla de Markdown ("---"): se quita.
+        while kept and kept[-1].strip() in ("", "---", "***", "___"):
+            kept.pop()
+    return "\n".join(kept).strip(), cited
+
+
+def extract_sources(messages: Sequence[BaseMessage], cited: set[str] | None = None) -> list[str]:
+    """Fuentes (sin repetir, en orden) de los fragmentos que devolvio buscar_conocimiento.
+
+    cited: archivos que el modelo dijo haber usado. Si es None (no escribio la linea
+    FUENTES), se toman todos los fragmentos consultados. Solo cuentan las busquedas de
+    este turno: el historial entra como texto, sin resultados de herramientas.
+    """
+    fragments = [
+        fragment
+        for m in messages
+        if isinstance(m, ToolMessage) and m.name == buscar_conocimiento.name
+        for fragment in m.artifact or []
+    ]
+    if cited is not None:
+        # El modelo a veces acorta o altera la etiqueta ("antracnosis.md", "roña.md"),
+        # por eso se compara solo el nombre del archivo, sin carpeta ni acentos.
+        keys = {_doc_key(c) for c in cited}
+        used = [f for f in fragments if _doc_key(f.get("archivo", "")) in keys]
+        # Citó algo que no se puede ubicar: mejor todas las consultadas que ninguna.
+        fragments = used if used or not cited else fragments
+
+    sources: list[str] = []
+    for fragment in fragments:
+        for source in fragment.get("fuentes", []):
+            if source not in sources:
+                sources.append(source)
+    return sources
+
+
+def _doc_key(label: str) -> str:
+    """'enfermedades/Roña.md' -> 'rona': nombre del archivo sin carpeta, extension ni acentos."""
+    name = label.replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+    name = name.removesuffix(".md")
+    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+
+
+def chat_with_sources(message: str, history: History | None = None) -> AgentReply:
+    """Responde un mensaje usando el historial que recibe y devuelve sus fuentes.
 
     history: mensajes anteriores [{"role": "user" | "assistant", "content": ...}].
     Lanza AgentError si el LLM falla o la respuesta final viene vacia.
     """
     messages = build_messages(message, history)
     result = invoke_model(messages)
-    return extract_answer(result)
+    answer, cited = split_cited_sources(extract_answer(result))
+    if not answer:
+        logger.error("El LLM solo devolvio la linea de fuentes")
+        raise AgentError("El LLM devolvio una respuesta vacia")
+    return AgentReply(answer=answer, sources=extract_sources(result, cited))
+
+
+def chat(message: str, history: History | None = None) -> str:
+    """Igual que chat_with_sources, pero solo el texto. No guarda nada."""
+    return chat_with_sources(message, history).answer

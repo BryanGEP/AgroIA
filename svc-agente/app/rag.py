@@ -5,8 +5,9 @@ pgvector se puede cambiar por otro vector store sin tocar quien llama a
 buscar_conocimiento. La ingesta (paquete ingesta/) usa estas mismas piezas para que
 los documentos y las consultas se embeban con el mismo modelo y los mismos prefijos.
 
-Aun no se usa en /chat: el agente lo integrara como herramienta en la siguiente fase.
+El agente la usa a traves de la herramienta buscar_conocimiento (app/tools.py).
 """
+import logging
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -14,6 +15,12 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Segundos maximos para conectarse a Postgres: si la base esta caida, la busqueda
+# falla rapido en lugar de dejar al agente esperando.
+CONNECT_TIMEOUT = 5
 
 # Prefijos que exige la familia e5: sin ellos la calidad de recuperacion baja.
 PREFIJO_PASAJE = "passage: "
@@ -65,13 +72,31 @@ def crear_vector_store(embeddings: Embeddings | None = None, recrear: bool = Fal
         connection=settings.database_url,
         use_jsonb=True,
         pre_delete_collection=recrear,
+        engine_args={"connect_args": {"connect_timeout": CONNECT_TIMEOUT}},
     )
 
 
 @lru_cache(maxsize=1)
 def vector_store_por_defecto() -> VectorStore:
-    """Una sola conexion y un solo modelo cargado para todas las consultas."""
+    """Una sola conexion y un solo modelo cargado para todas las consultas.
+
+    Si falla (Postgres caido), lru_cache no guarda el error y la siguiente consulta
+    vuelve a intentar: el servicio se recupera solo cuando la base regresa.
+    """
     return crear_vector_store()
+
+
+def precargar() -> None:
+    """Carga el modelo de embeddings y conecta a pgvector antes de la primera pregunta.
+
+    La primera carga tarda varios segundos; hacerla al arrancar evita que la pague el
+    primer productor. Si falla solo se registra: la busqueda lo reintentara.
+    """
+    try:
+        vector_store_por_defecto().embeddings.embed_query("precarga")
+        logger.info("Base de conocimiento lista")
+    except Exception as exc:
+        logger.warning("No se pudo precargar la base de conocimiento: %s", type(exc).__name__)
 
 
 @dataclass
