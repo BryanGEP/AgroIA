@@ -1,5 +1,7 @@
 """Microservicio FastAPI que expone el agente AgroIA mediante POST /chat."""
+import threading
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -8,13 +10,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.agent import AgentError, chat
-from app.sessions import chat_with_session
+from app import rag
+from app.agent import AgentError, chat_with_sources
+from app.sessions import reply_with_session
 
 # Maximo de mensajes de historial que acepta /chat en una peticion.
 MAX_HISTORY = 50
 
-app = FastAPI(title="AgroIA - svc-agente", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # En segundo plano: el servicio acepta peticiones mientras carga el modelo.
+    threading.Thread(target=rag.precargar, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="AgroIA - svc-agente", version="0.1.0", lifespan=lifespan)
 
 # CORS abierto para pruebas locales (ajustar en produccion).
 app.add_middleware(
@@ -41,6 +52,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: str
+    # Fuentes de la base de conocimiento que consulto el agente para responder.
+    # Vacia si no busco (saludos, temas no tecnicos) o si la base no estaba disponible.
+    fuentes: list[str] = []
 
 
 @app.get("/health")
@@ -59,15 +73,15 @@ def chat_endpoint(req: ChatRequest):
     session_id = req.session_id or str(uuid.uuid4())
     try:
         if req.history is not None:
-            answer = chat(req.message, [m.model_dump() for m in req.history])
+            reply = chat_with_sources(req.message, [m.model_dump() for m in req.history])
         else:
-            answer = chat_with_session(req.message, session_id)
+            reply = reply_with_session(req.message, session_id)
     except AgentError:
         raise HTTPException(
             status_code=503,
             detail="El servicio de IA no está disponible, intenta más tarde",
         )
-    return ChatResponse(response=answer, session_id=session_id)
+    return ChatResponse(response=reply.answer, session_id=session_id, fuentes=reply.sources)
 
 
 # Monta el front web (index.html, styles.css, app.js) en la raiz.

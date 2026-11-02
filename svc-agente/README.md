@@ -9,12 +9,13 @@ Agente conversacional mínimo para productores de aguacate, construido con
 svc-agente/
 ├── app/
 │   ├── __init__.py
-│   ├── agent.py       # Núcleo del agente (LangChain, tool-ready)
+│   ├── agent.py       # Núcleo del agente (create_agent con herramientas, fuentes)
 │   ├── config.py      # Configuración (lee .env)
 │   ├── main.py        # API FastAPI: /health y POST /chat
 │   ├── memory.py      # Memoria conversacional por sesión
 │   ├── prompt.py      # Prompt del sistema (rol y límites)
-│   └── rag.py         # Recuperación del RAG: embeddings e5, pgvector, buscar_conocimiento
+│   ├── rag.py         # Recuperación del RAG: embeddings e5, pgvector, buscar_conocimiento
+│   └── tools.py       # Herramientas del agente (buscar_conocimiento)
 ├── conocimiento/      # Base de conocimiento del aguacate (Markdown con frontmatter)
 ├── ingesta/           # Ingesta del RAG (se corre aparte: python -m ingesta.cargar)
 │   ├── documentos.py  # Lee los .md y su frontmatter
@@ -109,9 +110,15 @@ Respuesta (ejemplo):
 ```json
 {
   "response": "...",
-  "session_id": "..."
+  "session_id": "...",
+  "fuentes": [
+    "Rocha-Arroyo, Salazar-García et al. (2011), INIFAP - Revista Mexicana de Ciencias Agrícolas 2(3): ...",
+    "California Avocado Commission - Irrigating Avocado Trees"
+  ]
 }
 ```
+
+`fuentes` lista las referencias de los documentos de la base de conocimiento que el agente usó para responder (sección 6). Va vacía en saludos y temas no técnicos, cuando la base no tiene la respuesta o cuando no se pudo consultar.
 
 Para mantener el contexto de la conversación, reenvía el `session_id` que
 devuelve la primera respuesta en las siguientes peticiones.
@@ -132,7 +139,7 @@ El servicio quedará disponible en http://127.0.0.1:8000
 
 ## 6. Base de conocimiento (RAG)
 
-El agente recupera información de `conocimiento/` (Markdown con frontmatter YAML) guardada en **Postgres con pgvector**. Todavía no se usa en `/chat`; la función de recuperación está lista para integrarse como herramienta del agente.
+El agente recupera información de `conocimiento/` (Markdown con frontmatter YAML) guardada en **Postgres con pgvector**, a través de la herramienta `buscar_conocimiento` (ver "Cómo responde el agente" más abajo).
 
 - **Embeddings:** modelo local `intfloat/multilingual-e5-small` (384 dimensiones), elegido en un bake-off contra e5-base y bge-m3. Se descarga la primera vez (unos 470 MB) en la caché de Hugging Face. e5 exige prefijos: los chunks se embeben como `passage: <texto>` y las consultas como `query: <texto>`; lo hace `EmbeddingsE5` en `app/rag.py`.
 - **Vector store:** `PGVector` de `langchain-postgres` (API clásica, metadatos en JSONB), colección `conocimiento_aguacate`. El código usa la interfaz `VectorStore` de LangChain, así que se puede cambiar de vector store sin tocar a quien busca.
@@ -180,13 +187,29 @@ for f in buscar_conocimiento("¿Qué es la roña?"):        # k por defecto: RAG
 
 Devuelve una lista de `Fragmento` (texto, relevancia de 0 a 1, título, sección, archivo, fuentes, tema, subtema, tipo), del más al menos relevante. `k` es configurable y se puede pasar otro `store` (las pruebas usan uno en memoria). Con e5 las relevancias quedan muy juntas (una pregunta fuera de tema saca alrededor de 0.78), así que no sirven como umbral fijo para decidir si la respuesta está en la base.
 
+### Cómo responde el agente
+
+El agente usa `create_agent` de LangChain con la herramienta `buscar_conocimiento` (`app/tools.py`), que envuelve la función de `app/rag.py`:
+
+1. Ante una pregunta técnica, el prompt (`app/prompt.py`) obliga al modelo a buscar **antes** de responder; los saludos y lo no técnico no buscan.
+2. La herramienta devuelve al modelo el texto de los fragmentos, cada uno con su etiqueta de archivo (`[enfermedades/rona.md] ...`). Los metadatos con las fuentes viajan aparte, como *artifact* del `ToolMessage`; el modelo no los ve.
+3. El modelo responde solo con lo que dicen los fragmentos y termina con una línea `FUENTES: enfermedades/rona.md, ...` (o `FUENTES: ninguna` si los fragmentos no contenían la respuesta). No hay umbral de relevancia: el modelo decide si el contexto alcanza.
+4. `app/agent.py` quita esa línea del texto y arma `fuentes` solo con los documentos citados, sin repetir. Tolera etiquetas acortadas o con acentos (`antracnosis.md`, `roña.md`). Si el modelo no escribe la línea, o cita algo irreconocible, se devuelven las fuentes de todo lo consultado.
+
+**Si pgvector no está disponible**, `/chat` no falla: la herramienta avisa al modelo, que responde que no pudo consultar la base y sugiere intentar más tarde, con `fuentes: []` y código 200. La conexión tiene un tope de 5 s y se reintenta en la siguiente pregunta, así que el servicio se recupera solo cuando la base regresa. Si falla el LLM (o el agente supera 10 pasos), `/chat` responde 503 como antes.
+
+Al arrancar, el servicio precarga en segundo plano el modelo de embeddings y la conexión a pgvector, para que la primera pregunta no pague esa carga (varios segundos).
+
+**Tiempos medidos** (Groq `openai/gpt-oss-120b`): una pregunta técnica hace 2 llamadas al LLM más la búsqueda (~20 ms) y tardó entre 2 y 19 s; un saludo, menos de 1 s. `LLM_TIMEOUT` (30 s) aplica a cada llamada al LLM, no a la petición completa.
+
 ### Pruebas
 
-Las pruebas del RAG (`tests/test_ingesta.py`, `tests/test_rag.py`) usan un vector store en memoria y embeddings falsos: no necesitan Postgres ni descargan modelos.
+Las pruebas del RAG (`tests/test_ingesta.py`, `tests/test_rag.py`, `tests/test_rag_agente.py`) usan un vector store en memoria, embeddings falsos y un modelo falso con `tool_calls` simulados: no necesitan Postgres, Groq ni descargan modelos.
 
 ## Notas
 
 - El agente **no sustituye** el diagnóstico de un profesional; sus respuestas
   son orientativas y deben validarse en campo.
-- Arquitectura *tool-ready*: en la Entrega 2 se agregarán herramientas (RAG,
-  reglas, Bayes; la ingesta y la recuperación del RAG ya están en `ingesta/` y `app/rag.py`) y en la Entrega 3 el modelo de visión, sin reescribir el núcleo.
+- Arquitectura *tool-ready*: el RAG ya es una herramienta del agente (`TOOLS` en
+  `app/agent.py`); en la Entrega 2 se agregarán reglas y Bayes, y en la Entrega 3 el
+  modelo de visión, sin reescribir el núcleo.
