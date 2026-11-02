@@ -30,28 +30,19 @@ def formatear_fragmentos(fragmentos: list[rag.Fragmento]) -> str:
     """Texto que recibe el modelo: cada fragmento con su documento de origen.
 
     La etiqueta [archivo] es la que el modelo cita en su linea final "FUENTES:" para
-    indicar que documentos uso (ver app/prompt.py y agent.split_cited_sources).
+    indicar que documentos uso (ver app/prompt.py y agent.split_cited_sources). El
+    texto del chunk ya empieza con "titulo > seccion", asi que no se repiten aqui.
     """
-    bloques = [
-        f"[{f.archivo}] Documento: {f.titulo} (seccion: {f.seccion})\n{f.texto}"
-        for f in fragmentos
-    ]
+    bloques = [f"[{f.archivo}]\n{f.texto}" for f in fragmentos]
     return "\n\n---\n\n".join(bloques)
 
 
 @tool(response_format="content_and_artifact")
 def buscar_conocimiento(consulta: str) -> tuple[str, list[dict]]:
-    """Busca en la base de conocimiento tecnica de AgroIA sobre el cultivo del aguacate.
-
-    Usala SIEMPRE antes de responder cualquier duda tecnica sobre el aguacate: riego,
-    suelo, pH, fertilizacion, poda, heladas, plagas (barrenadores, trips, acaros) o
-    enfermedades (antracnosis, rona, pudricion de raiz), sintomas que describe el
-    productor y su manejo. No la uses para saludos, agradecimientos ni temas ajenos
-    al aguacate.
+    """Base de conocimiento tecnica del aguacate: riego, suelo, pH, fertilizacion, poda, heladas, plagas, enfermedades, sintomas y manejo. Usala SIEMPRE antes de responder una duda tecnica; no para saludos ni temas ajenos.
 
     Args:
-        consulta: la duda del productor reformulada como pregunta completa y concreta,
-            en espanol (por ejemplo "¿Que sintomas tiene la rona del aguacate?").
+        consulta: la duda reformulada como pregunta completa en espanol.
     """
     try:
         fragmentos = rag.buscar_conocimiento(consulta)
@@ -65,35 +56,25 @@ def buscar_conocimiento(consulta: str) -> tuple[str, list[dict]]:
 
 # --- Sistema basado en reglas (SBR) ---
 
+# Los esquemas y descripciones de las herramientas viajan en cada llamada al LLM:
+# se mantienen cortos (ver app/prompt.py).
 CodigoSintoma = Literal[tuple(reglas.SINTOMAS)]
-_CATALOGO = "\n".join(f"- {codigo}: {texto}" for codigo, texto in reglas.SINTOMAS.items())
+_CATALOGO = "; ".join(f"{codigo}: {texto}" for codigo, texto in reglas.SINTOMAS.items())
 NO_DOSIS = "Recuerda: orientacion, no tratamiento. No des dosis, productos ni recetas."
 
 
 class EntradaSintomas(BaseModel):
-    sintomas: list[CodigoSintoma] = Field(
-        description="Codigos de los sintomas que describe el productor (solo los que "
-        "menciona, sin suponer otros):\n" + _CATALOGO
-    )
-    otros_sintomas: str | None = Field(
-        default=None,
-        description="Sintomas descritos que no encajan en ningun codigo, en texto breve.",
-    )
+    sintomas: list[CodigoSintoma] = Field(description="Codigos de los sintomas mencionados. " + _CATALOGO)
+    otros_sintomas: str | None = Field(default=None, description="Sintomas que no encajan en ningun codigo.")
 
 
 class EntradaHuerto(BaseModel):
-    ph_suelo: float | None = Field(default=None, description="pH del suelo (0 a 14).")
-    ph_agua: float | None = Field(default=None, description="pH del agua de riego (0 a 14).")
-    tipo_suelo: Literal[reglas.TIPOS_SUELO] | None = Field(
-        default=None,
-        description="Textura del suelo. 'volcanico' = Andosol (tierra de migajon volcanica).",
-    )
-    encharcamiento: bool | None = Field(
-        default=None,
-        description="True si el suelo se encharca o tarda en secarse; False si drena bien.",
-    )
-    edad_arboles: float | None = Field(default=None, description="Edad de los arboles en anos.")
-    hectareas: float | None = Field(default=None, description="Superficie del huerto (solo contexto).")
+    ph_suelo: float | None = Field(default=None, description="pH del suelo")
+    ph_agua: float | None = Field(default=None, description="pH del agua de riego")
+    tipo_suelo: Literal[reglas.TIPOS_SUELO] | None = Field(default=None, description="volcanico = Andosol")
+    encharcamiento: bool | None = Field(default=None, description="True si se encharca; False si drena bien")
+    edad_arboles: float | None = Field(default=None, description="Anos")
+    hectareas: float | None = Field(default=None, description="Solo contexto")
 
 
 def formatear_diagnostico(diag: reglas.Diagnostico) -> str:
@@ -130,15 +111,7 @@ def formatear_evaluacion(ev: reglas.Evaluacion) -> str:
 
 @tool(args_schema=EntradaSintomas)
 def diagnosticar_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> str:
-    """Orienta sobre la causa probable de lo que el productor OBSERVA en su huerto.
-
-    Usala cuando el productor describa sintomas en frutos, hojas, hueso, raices o el
-    arbol (manchas, costras, hojas bronceadas, galerias en el hueso, marchitez...).
-    Traduce lo que describe a los codigos del catalogo. Aplica reglas fijas (SI ... ENTONCES)
-    y devuelve la causa probable, si los datos son incompletos o ambiguos, y cuando
-    acudir a un tecnico. Despues puedes usar buscar_conocimiento para explicar la causa.
-    No da dosis ni tratamientos.
-    """
+    """Orienta la causa probable de SINTOMAS que el productor observa (fruto, hojas, hueso, raices, arbol) con reglas fijas. Indica si los datos son incompletos o ambiguos y cuando acudir a un tecnico. No da tratamientos."""
     try:
         return formatear_diagnostico(reglas.diagnosticar(sintomas, otros_sintomas))
     except ValueError as exc:
@@ -154,14 +127,7 @@ def evaluar_huerto(
     edad_arboles: float | None = None,
     hectareas: float | None = None,
 ) -> str:
-    """Evalua DATOS o parametros del huerto que da el productor y dice si estan bien.
-
-    Usala cuando el productor de valores o caracteristicas de su huerto: pH del suelo o
-    del agua de riego, tipo de suelo (arcilloso, arenoso, franco, volcanico), si se
-    encharca, edad de los arboles o hectareas. Pasa solo los datos que dio, sin inventar
-    los demas. Clasifica cada dato con rangos orientativos y provisionales, y recuerda
-    confirmarlos con un analisis de laboratorio y un tecnico. No da dosis ni correcciones.
-    """
+    """Evalua DATOS del huerto que dio el productor: pH del suelo o del agua, tipo de suelo, si se encharca, edad de los arboles, hectareas. Usala SIEMPRE que de un valor (ej. "el pH de mi suelo es 4.8"), ademas de buscar. Pasa solo esos datos. Rangos orientativos y provisionales; no da correcciones."""
     try:
         ev = reglas.evaluar_parametros(
             ph_suelo=ph_suelo, ph_agua=ph_agua, tipo_suelo=tipo_suelo,
