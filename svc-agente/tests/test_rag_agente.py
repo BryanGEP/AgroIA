@@ -77,7 +77,7 @@ def test_herramienta_devuelve_texto_y_fragmentos(base):
     )
 
     assert isinstance(mensaje, ToolMessage)
-    assert "[enfermedades/rona.md] Documento: Roña del aguacate" in mensaje.content
+    assert "[enfermedades/rona.md]\nRoña del aguacate" in mensaje.content
     assert len(mensaje.artifact) == rag.settings.rag_top_k
     assert mensaje.artifact[0]["archivo"] == "enfermedades/rona.md"
     assert mensaje.artifact[0]["fuentes"]

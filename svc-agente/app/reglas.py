@@ -33,23 +33,25 @@ CONSULTA_TECNICO = (
 
 # Catalogo de hechos (sintomas observables). El agente traduce la descripcion del
 # productor a estos codigos; un sintoma que no encaje va como texto en "otros".
+# Las descripciones van en el esquema de la herramienta en cada llamada al LLM: se
+# mantienen cortas, solo con lo que distingue a cada sintoma.
 SINTOMAS: dict[str, str] = {
-    "fruto_manchas_hundidas_oscuras": "Manchas oscuras (cafe a negro) y hundidas en la cascara del fruto",
-    "fruto_pulpa_podrida": "La pulpa bajo las manchas esta podrida u oscurecida",
-    "fruto_esporas_rosadas": "Masas de esporas rosadas o color salmon sobre las manchas",
-    "costras_corchosas_levantadas": "Costras cafes, asperas, corchosas y levantadas en fruto u hojas (no es polvo)",
-    "fruto_cicatrices_asperas": "Cicatrices asperas, cafes o plateadas en la cascara ('piel de cocodrilo')",
-    "hojas_bronceadas": "Hojas con zonas bronceadas, rojizas o con aspecto 'quemado'",
-    "hojas_manchas_plateadas_enves_telaranas": "Manchas redondas plateadas en el enves de la hoja, bajo telaranas",
-    "hojas_caida_prematura": "Las hojas caen antes de tiempo (defoliacion)",
-    "hueso_danado_galerias": "Dano o galerias dentro del hueso (semilla)",
-    "fruto_perforaciones": "Pequenas perforaciones u orificios en el fruto",
-    "fruto_exudado_o_aserrin": "Polvo/exudado blanquecino o aserrin (excremento) saliendo de orificios del fruto",
-    "fruto_caida_prematura": "Los frutos caen antes de tiempo",
-    "marchitez_general": "Marchitez de todo el arbol, aunque el suelo este humedo",
+    "fruto_manchas_hundidas_oscuras": "Manchas oscuras hundidas en la cascara",
+    "fruto_pulpa_podrida": "Pulpa podrida u oscura bajo las manchas",
+    "fruto_esporas_rosadas": "Esporas rosadas o salmon sobre las manchas",
+    "costras_corchosas_levantadas": "Costras asperas, corchosas, levantadas (no polvo)",
+    "fruto_cicatrices_asperas": "Cicatrices asperas o plateadas en la cascara",
+    "hojas_bronceadas": "Hojas bronceadas, rojizas o 'quemadas'",
+    "hojas_manchas_plateadas_enves_telaranas": "Manchas plateadas redondas en el enves, con telaranas",
+    "hojas_caida_prematura": "Caida prematura de hojas",
+    "hueso_danado_galerias": "Dano o galerias en el hueso",
+    "fruto_perforaciones": "Perforaciones en el fruto",
+    "fruto_exudado_o_aserrin": "Exudado blanquecino o aserrin en orificios del fruto",
+    "fruto_caida_prematura": "Caida prematura de frutos",
+    "marchitez_general": "Marchitez del arbol aunque el suelo este humedo",
     "raices_danadas": "Raices finas escasas, negras o quebradizas",
-    "suelo_encharcado": "El suelo se encharca o tarda mucho en secarse",
-    "hojas_pequenas_palidas": "Hojas pequenas, palidas o amarillentas y copa rala",
+    "suelo_encharcado": "Suelo encharcado o que tarda en secarse",
+    "hojas_pequenas_palidas": "Hojas pequenas, palidas o amarillas; copa rala",
 }
 
 
