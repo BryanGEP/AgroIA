@@ -10,13 +10,14 @@ svc-agente/
 ├── app/
 │   ├── __init__.py
 │   ├── agent.py       # Núcleo del agente (create_agent con herramientas, fuentes)
+│   ├── bayes.py       # Razonamiento probabilístico (Teorema de Bayes) sobre síntomas
 │   ├── config.py      # Configuración (lee .env)
 │   ├── main.py        # API FastAPI: /health y POST /chat
 │   ├── memory.py      # Memoria conversacional por sesión
 │   ├── prompt.py      # Prompt del sistema (rol y límites)
 │   ├── rag.py         # Recuperación del RAG: embeddings e5, pgvector, buscar_conocimiento
 │   ├── reglas.py      # Sistema basado en reglas (SBR): síntomas y parámetros del huerto
-│   └── tools.py       # Herramientas del agente (RAG y SBR)
+│   └── tools.py       # Herramientas del agente (RAG, SBR y Bayes)
 ├── conocimiento/      # Base de conocimiento del aguacate (Markdown con frontmatter)
 ├── ingesta/           # Ingesta del RAG (se corre aparte: python -m ingesta.cargar)
 │   ├── documentos.py  # Lee los .md y su frontmatter
@@ -251,10 +252,39 @@ El SBR **nunca da dosis, productos ni recetas**: eso lo define el técnico o agr
 
 Pruebas: `tests/test_reglas.py` (motor solo) y `tests/test_reglas_agente.py` (herramientas con el modelo falso).
 
+## 8. Razonamiento probabilístico (Teorema de Bayes)
+
+Cuando hay **varios síntomas o son ambiguos**, el agente expresa la incertidumbre como probabilidades («antracnosis 49 %, roña 49 %: no es concluyente»). Las tres herramientas se complementan:
+
+| Herramienta | Para qué |
+|---|---|
+| `diagnosticar_sintomas` (reglas) | Clasificar de forma determinista cuando el caso es claro |
+| `estimar_probabilidades_sintomas` (Bayes) | Cuantificar la duda cuando hay varias causas posibles |
+| `buscar_conocimiento` (RAG) | Explicar y fundamentar la causa o causas |
+
+- **Módulo (`app/bayes.py`):** puro, sin LLM. Para cada causa calcula `P(causa|síntomas) = P(síntomas|causa) · P(causa) / P(síntomas)`, con el supuesto de Bayes ingenuo (síntomas independientes dada la causa), y normaliza para que los posteriores sumen 1. Cada `TerminoBayes` guarda el prior, la verosimilitud, el numerador y el posterior, para poder revisar el cálculo.
+- **Catálogo compartido:** usa los mismos códigos de síntomas que el SBR (`app/reglas.py`), al que se añadió `fruto_manchas_sin_detalle` para las manchas que el productor no sabe describir. Las causas son las del SBR más **«otra causa no incluida»**, para que un síntoma general (como marchitez) no se atribuya con falsa seguridad a la única causa del catálogo que lo explica.
+- **Solo cuentan los síntomas reportados:** que el productor no mencione un síntoma no significa que no esté.
+- **Veredicto:** «dominante» si la causa principal llega al 80 %, «probable» entre 50 y 80 %, «no concluyente» por debajo del 50 %.
+
+**Las probabilidades son orientativas y provisionales.** Los priors (`PRIORS_CUALITATIVOS`) y las verosimilitudes (`VEROSIMILITUDES`) no son datos clínicos ni epidemiológicos medidos. Son una escala cualitativa derivada de la base de conocimiento:
+
+| Nivel | Valor | Uso |
+|---|---|---|
+| Muy alta | 0.9 | Síntoma típico de la causa |
+| Alta | 0.7 | Síntoma frecuente |
+| Media | 0.4 | Síntoma que aparece a veces |
+| Baja | 0.15 | Síntoma posible pero poco característico |
+| Muy baja | 0.01 | Síntoma no relacionado (valor por omisión; no es cero para no anular el producto) |
+
+Sirven para ordenar las causas y expresar la duda, no como porcentajes exactos, y deben calibrarse con un especialista o con datos de campo. El resultado nunca da dosis ni tratamientos.
+
+Pruebas: `tests/test_bayes.py` (el teorema con casos calculados a mano, las tablas reales y la herramienta con el modelo falso).
+
 ## Notas
 
 - El agente **no sustituye** el diagnóstico de un profesional; sus respuestas
   son orientativas y deben validarse en campo.
-- Arquitectura *tool-ready*: el RAG y el SBR ya son herramientas del agente (`TOOLS`
-  en `app/agent.py`); falta el módulo Bayes y, en la Entrega 3, el modelo de visión,
-  sin reescribir el núcleo.
+- Arquitectura *tool-ready*: el RAG, el SBR y Bayes ya son herramientas del agente
+  (`TOOLS` en `app/agent.py`); en la Entrega 3 se agregará el modelo de visión, sin
+  reescribir el núcleo.

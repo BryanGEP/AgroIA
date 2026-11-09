@@ -37,6 +37,7 @@ CONSULTA_TECNICO = (
 # mantienen cortas, solo con lo que distingue a cada sintoma.
 SINTOMAS: dict[str, str] = {
     "fruto_manchas_hundidas_oscuras": "Manchas oscuras hundidas en la cascara",
+    "fruto_manchas_sin_detalle": "Manchas en el fruto, sin saber si estan hundidas o levantadas",
     "fruto_pulpa_podrida": "Pulpa podrida u oscura bajo las manchas",
     "fruto_esporas_rosadas": "Esporas rosadas o salmon sobre las manchas",
     "costras_corchosas_levantadas": "Costras asperas, corchosas, levantadas (no polvo)",

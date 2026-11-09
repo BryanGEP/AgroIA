@@ -33,13 +33,18 @@ from langchain_groq import ChatGroq
 
 from app.config import settings
 from app.prompt import SYSTEM_PROMPT
-from app.tools import buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto
+from app.tools import (
+    buscar_conocimiento,
+    diagnosticar_sintomas,
+    estimar_probabilidades_sintomas,
+    evaluar_huerto,
+)
 
 logger = logging.getLogger(__name__)
 
-# Herramientas del agente: RAG (explica y fundamenta) y SBR (orienta y clasifica).
-# Siguientes: modulo Bayes y, en la Entrega 3, el modelo de vision.
-TOOLS = [buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto]
+# Herramientas del agente: RAG (explica y fundamenta), SBR (orienta y clasifica) y
+# Bayes (cuantifica la incertidumbre). Siguiente: en la Entrega 3, el modelo de vision.
+TOOLS = [buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto, estimar_probabilidades_sintomas]
 
 # Tope de pasos del agente (cada busqueda son 2: la llamada a la herramienta y su
 # resultado). Evita que el modelo se quede buscando en bucle.

@@ -34,12 +34,17 @@ def resultado_de(modelo, nombre):
     return next(m.content for m in modelo.calls[-1] if isinstance(m, ToolMessage) and m.name == nombre)
 
 
-def test_el_agente_registra_las_tres_herramientas():
+def test_el_agente_registra_las_herramientas():
     modelo = fake_model("Hola.")
     with patch("app.agent.get_llm", return_value=modelo):
         client.post("/chat", json={"message": "Hola"})
 
-    assert [t.name for t in TOOLS] == ["buscar_conocimiento", "diagnosticar_sintomas", "evaluar_huerto"]
+    assert [t.name for t in TOOLS] == [
+        "buscar_conocimiento",
+        "diagnosticar_sintomas",
+        "evaluar_huerto",
+        "estimar_probabilidades_sintomas",
+    ]
     assert [t.name for t in modelo.tools_recibidas] == [t.name for t in TOOLS]
 
 
@@ -182,5 +187,5 @@ def test_prompt_explica_cuando_usar_cada_herramienta():
 
     assert "diagnosticar_sintomas" in prompt and "evaluar_huerto" in prompt
     assert "no fuerces una conclusion" in prompt
-    assert "ni las reglas ni tu dan dosis" in prompt
+    assert "ni las reglas, ni las probabilidades, ni tu dan dosis" in prompt
     assert "no sustituyes" in prompt
