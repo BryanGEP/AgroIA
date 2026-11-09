@@ -190,8 +190,9 @@ def test_sesion_guarda_la_respuesta_sin_los_mensajes_de_herramienta(base):
 
 
 def test_solo_devuelve_las_fuentes_de_los_documentos_citados(base):
+    # La consulta mezcla roña y trips para que la búsqueda traiga más de un documento.
     modelo = fake_model(
-        tool_call("¿Qué es la roña?"),
+        tool_call("roña y trips en el fruto"),
         "La roña forma costras corchosas.\n\nFUENTES: enfermedades/rona.md",
     )
 
