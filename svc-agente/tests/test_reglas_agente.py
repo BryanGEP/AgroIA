@@ -53,7 +53,21 @@ def test_el_esquema_lista_los_codigos_de_sintomas():
     codigos = esquema["properties"]["sintomas"]["items"]["enum"]
 
     assert "fruto_manchas_hundidas_oscuras" in codigos and "hojas_bronceadas" in codigos
-    assert "Manchas oscuras" in esquema["properties"]["sintomas"]["description"]
+    assert "estimar_probabilidades_sintomas" in esquema["properties"]["sintomas"]["description"]
+
+
+def test_el_catalogo_descrito_viaja_una_sola_vez():
+    from app.reglas import SINTOMAS
+    from app.tools import estimar_probabilidades_sintomas
+
+    reglas_esq = diagnosticar_sintomas.tool_call_schema.model_json_schema()["properties"]["sintomas"]
+    bayes_esq = estimar_probabilidades_sintomas.tool_call_schema.model_json_schema()["properties"]["sintomas"]
+
+    # Los dos aceptan exactamente el mismo catalogo de codigos...
+    assert set(reglas_esq["items"]["enum"]) == set(bayes_esq["items"]["enum"]) == set(SINTOMAS)
+    # ...pero las descripciones solo viajan una vez (en el esquema de Bayes)
+    assert all(texto in bayes_esq["description"] for texto in SINTOMAS.values())
+    assert not any(texto in reglas_esq["description"] for texto in SINTOMAS.values())
 
 
 def test_las_descripciones_dicen_cuando_usarlas():

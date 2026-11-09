@@ -281,6 +281,15 @@ Sirven para ordenar las causas y expresar la duda, no como porcentajes exactos, 
 
 Pruebas: `tests/test_bayes.py` (el teorema con casos calculados a mano, las tablas reales y la herramienta con el modelo falso).
 
+### Tokens: qué recibe el modelo
+
+Cada llamada al LLM reenvía el prompt y los esquemas de las cuatro herramientas, así que se mantienen compactos:
+
+- **Catálogo de síntomas una sola vez:** las dos herramientas de síntomas aceptan los mismos códigos, pero la descripción de cada síntoma solo va en el esquema de `estimar_probabilidades_sintomas`; `diagnosticar_sintomas` remite a él. Dejar solo los códigos, sin descripciones, hizo que el modelo omitiera síntomas que el productor sí mencionó, por eso se conservan una vez.
+- **Contenido y artifact:** igual que el RAG, las reglas y Bayes devuelven al modelo solo lo esencial (causa, gravedad, siguiente paso, probabilidades, veredicto y avisos específicos). El detalle va en el *artifact* del `ToolMessage`, que el modelo no ve: las reglas disparadas con sus apoyos, y el cálculo bayesiano completo (prior, verosimilitud, numerador, evidencia y posterior de cada causa).
+- **Fuentes:** se unifican las que son la misma obra escrita distinto (misma autoría y año) y, si el modelo no escribe la línea `FUENTES`, se toman solo los 2 documentos más relevantes de cada búsqueda.
+- **Etiquetas:** `app/agent.py` quita del texto final cualquier etiqueta de fragmento (`[enfermedades/rona.md]`, `【…】`) que el modelo copie por error.
+
 ## Notas
 
 - El agente **no sustituye** el diagnóstico de un profesional; sus respuestas

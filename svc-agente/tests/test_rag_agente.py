@@ -222,14 +222,87 @@ def test_fuentes_ninguna_deja_la_lista_vacia(base):
     }
 
 
-def test_sin_linea_fuentes_usa_todo_lo_consultado(base):
-    modelo = fake_model(tool_call("¿Qué es la roña?"), "La roña forma costras.")
+def test_sin_linea_fuentes_usa_los_documentos_mas_relevantes(base):
+    modelo = fake_model(tool_call("roña y trips en el fruto"), "La roña forma costras.")
 
     with patch("app.agent.get_llm", return_value=modelo):
         body = client.post("/chat", json={"message": "¿Qué es la roña?"}).json()
 
-    esperadas = extract_sources(modelo.calls[-1])
-    assert body["fuentes"] == esperadas and len(esperadas) > 3
+    consultados = mensajes_de_herramienta(modelo)[0].artifact
+    primeros = []
+    for f in consultados:  # orden de relevancia
+        if f["archivo"] not in primeros:
+            primeros.append(f["archivo"])
+    docs = cargar_documentos()
+    esperadas = [s for a in primeros[:2] for s in next(d for d in docs if d.archivo == a).fuentes]
+    assert body["fuentes"]
+    assert set(body["fuentes"]) <= set(esperadas)  # solo de los 2 documentos mas relevantes
+
+
+def test_sin_linea_fuentes_no_devuelve_todo_lo_consultado():
+    mensajes = [ToolMessage("x", tool_call_id="1", name="buscar_conocimiento", artifact=[
+        {"archivo": "a.md", "fuentes": ["A"]},
+        {"archivo": "b.md", "fuentes": ["B"]},
+        {"archivo": "a.md", "fuentes": ["A"]},
+        {"archivo": "c.md", "fuentes": ["C"]},
+        {"archivo": "d.md", "fuentes": ["D"]},
+    ])]
+
+    assert extract_sources(mensajes) == ["A", "B"]
+
+
+@pytest.mark.parametrize(("fuentes", "esperadas"), [
+    # La misma obra escrita distinto en dos documentos (mismo autor y año)
+    (["Ramírez Dávila et al. (2013), Acta Zoológica Mexicana 29(3) - Trips y roña del fruto",
+      "Ramirez Davila et al. (2013), Acta Zoologica Mexicana 29(3) - Trips en aguacate"], 1),
+    # Mayusculas y espacios distintos
+    (["UC IPM - Avocado: Anthracnose", "uc ipm -  avocado:  anthracnose"], 1),
+    # Paginas distintas del mismo sitio, sin año: no se fusionan
+    (["UC IPM - Avocado: Anthracnose", "UC IPM - Avocado: Persea Mite"], 2),
+    # Mismos autores, distinto año: obras distintas
+    (["Herrera-González et al. (2020), RMCA 11(7)", "Herrera-González et al. (2024), RMCA 15(5)"], 2),
+])
+def test_fuentes_duplicadas_se_unifican(fuentes, esperadas):
+    mensajes = [ToolMessage("x", tool_call_id="1", name="buscar_conocimiento", artifact=[
+        {"archivo": "a.md", "fuentes": fuentes[:1]},
+        {"archivo": "b.md", "fuentes": fuentes[1:]},
+    ])]
+
+    assert len(extract_sources(mensajes)) == esperadas
+
+
+def test_la_base_real_no_repite_fuentes_en_una_respuesta(base):
+    modelo = fake_model(
+        tool_call("roña y trips en el fruto"),
+        "Respuesta.\nFUENTES: enfermedades/rona.md, enfermedades/trips.md",
+    )
+
+    with patch("app.agent.get_llm", return_value=modelo):
+        fuentes = client.post("/chat", json={"message": "roña y trips"}).json()["fuentes"]
+
+    ramirez = [f for f in fuentes if f.startswith("Ramírez Dávila et al. (2013)")]
+    assert len(ramirez) == 1  # citada en rona.md y en trips.md con distinto texto
+
+
+@pytest.mark.parametrize("texto", [
+    "La roña forma costras 【enfermedades/rona.md】.",
+    "La roña forma costras [enfermedades/rona.md].",
+    "La roña forma costras【enfermedades/rona.md】【enfermedades/trips.md】.",
+])
+def test_no_se_filtran_etiquetas_al_productor(texto, base):
+    modelo = fake_model(tool_call("roña"), texto + "\nFUENTES: enfermedades/rona.md")
+
+    with patch("app.agent.get_llm", return_value=modelo):
+        respuesta = client.post("/chat", json={"message": "¿Qué es la roña?"}).json()["response"]
+
+    assert respuesta == "La roña forma costras."
+
+
+def test_los_enlaces_markdown_no_se_tocan():
+    from app.agent import strip_labels
+
+    texto = "Ver [la guía](https://ejemplo.mx/guia.md) y [documento/notas.md](https://x.mx)."
+    assert strip_labels(texto) == texto
 
 
 @pytest.mark.parametrize(
