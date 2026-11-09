@@ -8,6 +8,9 @@
 - diagnosticar_sintomas y evaluar_huerto (SBR, app/reglas.py): orientan y clasifican
   con reglas deterministicas. Son dos herramientas, una por capacidad, para que el
   modelo sepa cual usar segun lo que describe el productor.
+- estimar_probabilidades_sintomas (Teorema de Bayes, app/bayes.py): cuantifica la
+  incertidumbre cuando hay varios sintomas o son ambiguos. Usa el mismo catalogo de
+  sintomas (y el mismo esquema de entrada) que diagnosticar_sintomas.
 """
 import logging
 from dataclasses import asdict
@@ -16,7 +19,7 @@ from typing import Literal
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app import rag, reglas
+from app import bayes, rag, reglas
 
 logger = logging.getLogger(__name__)
 
@@ -136,3 +139,46 @@ def evaluar_huerto(
     except ValueError as exc:
         return f"ERROR: {exc}."
     return formatear_evaluacion(ev)
+
+
+# --- Razonamiento probabilistico (Teorema de Bayes) ---
+
+VEREDICTOS = {
+    "dominante": "Una causa domina claramente.",
+    "probable": "Hay una causa mas probable, pero no es concluyente.",
+    "no_concluyente": "No es concluyente: varias causas posibles.",
+    "sin_evidencia": "Sin sintomas del catalogo no hay evidencia para estimar.",
+}
+
+
+def formatear_estimacion(est: bayes.Estimacion, mostrar: int = 4) -> str:
+    """Causas ordenadas por probabilidad; se omiten las que quedan por debajo de 1 %."""
+    lineas = ["RESULTADO PROBABILISTICO (Teorema de Bayes: P(causa|sintomas) proporcional a P(sintomas|causa) x P(causa))"]
+    if est.sintomas:
+        lineas.append("Sintomas usados: " + "; ".join(reglas.SINTOMAS[s] for s in est.sintomas))
+    for t in est.terminos[:mostrar]:
+        if t.posterior < 0.01:
+            break
+        lineas.append(f"- {bayes.CAUSAS[t.causa].causa}: {t.posterior:.0%}")
+    lineas.append(f"Veredicto: {VEREDICTOS[est.veredicto]}")
+    if est.terminos:
+        lineas.append(
+            "Al responder, menciona cada porcentaje junto a su causa, tal cual; las causas que "
+            "no aparecen en esta lista no tienen un porcentaje calculado."
+        )
+    lineas.append("\nAvisos:")
+    lineas += [f"- {a}" for a in est.avisos]
+    lineas.append(NO_DOSIS)
+    return "\n".join(lineas)
+
+
+@tool(args_schema=EntradaSintomas)
+def estimar_probabilidades_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> str:
+    """Estima con el Teorema de Bayes la PROBABILIDAD de cada causa (antracnosis, rona, trips, acaros, barrenador, Phytophthora u otra) cuando hay VARIOS sintomas o son AMBIGUOS. Devuelve las causas de mayor a menor probabilidad y si el resultado es concluyente. Valores orientativos; no da tratamientos."""
+    try:
+        texto = formatear_estimacion(bayes.estimar(sintomas))
+    except ValueError as exc:
+        return f"ERROR: {exc}. Usa solo los codigos del catalogo."
+    if otros_sintomas and otros_sintomas.strip():
+        texto += f"\nNo evaluados (fuera del catalogo): {otros_sintomas.strip()}."
+    return texto
