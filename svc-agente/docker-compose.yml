@@ -1,0 +1,55 @@
+# svc-agente con su Postgres + pgvector para la base de conocimiento (RAG).
+#
+#   docker compose up -d postgres                         # solo la base (desarrollo local)
+#   docker compose up -d --build                          # agente + base
+#   docker compose run --rm svc-agente python -m ingesta.cargar   # ingesta dentro de Docker
+#
+# Las variables se leen de .env (ver .env.example). Los puertos se publican solo en
+# 127.0.0.1: sirven para probar desde esta computadora, no quedan expuestos a la red.
+name: agroia-agente
+
+services:
+  svc-agente:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Dentro de la red de Docker la base se llama "postgres" y escucha en 5432,
+      # aunque en .env POSTGRES_HOST/PORT apunten a 127.0.0.1 para el uso local.
+      DATABASE_URL: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-conocimiento}
+      POSTGRES_USER: ${POSTGRES_USER:-agroia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      # El modelo de embeddings se descarga una vez y queda en el volumen.
+      HF_HOME: /cache/huggingface
+    volumes:
+      - modelos-hf:/cache/huggingface
+    ports:
+      - "127.0.0.1:${AGENTE_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-conocimiento}
+      POSTGRES_USER: ${POSTGRES_USER:-agroia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+    volumes:
+      - pgvector-datos:/var/lib/postgresql/data
+    ports:
+      # 5433 en la computadora para no chocar con el Postgres de AgroIA-Web (5432)
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgvector-datos:
+  modelos-hf:

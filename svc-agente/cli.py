@@ -3,7 +3,7 @@
 Uso:
     python cli.py
 """
-from app.agent import chat
+from app.sessions import chat_with_session
 
 SESSION = "cli"
 
@@ -18,7 +18,7 @@ def main():
         if user_input.lower() in ("exit", "salir"):
             print("Hasta luego")
             break
-        answer = chat(user_input, session_id=SESSION)
+        answer = chat_with_session(user_input, SESSION)
         print(f"AgroIA: {answer}\n")
 
 

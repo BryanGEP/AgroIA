@@ -1,25 +1,57 @@
 """Nucleo del agente AgroIA construido con LangChain.
 
-Arquitectura "tool-ready": hoy el agente solo conversa, pero esta preparado
-para agregar herramientas (RAG, reglas, Bayes, vision) en las siguientes
-entregas sin reescribir esta capa. Cuando existan herramientas, la lista TOOLS
-se llenara y el chain se cambiara por un agente con function calling.
+El agente es SIN ESTADO: recibe el historial de la conversacion desde afuera y no
+guarda nada. Quien lo llama (el endpoint /chat, el CLI o, mas adelante, el servicio
+de gestion con la base de datos) decide donde vive el historial.
+
+El flujo esta separado en piezas:
+    build_messages -> invoke_model -> extract_answer (+ extract_sources)
+
+invoke_model usa create_agent de LangChain: el modelo decide si llama a las
+herramientas de TOOLS (la busqueda en la base de conocimiento del RAG y las dos del
+sistema basado en reglas) y se
+devuelve la conversacion completa, con los mensajes intermedios de las herramientas.
+extract_answer toma la respuesta final y extract_sources junta las fuentes de los
+fragmentos que recupero la herramienta.
 """
 import logging
+import re
+import unicodedata
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
+from langchain.agents import create_agent
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.config import settings
 from app.prompt import SYSTEM_PROMPT
-from app.memory import memory
+from app.tools import (
+    buscar_conocimiento,
+    diagnosticar_sintomas,
+    estimar_probabilidades_sintomas,
+    evaluar_huerto,
+)
 
 logger = logging.getLogger(__name__)
 
-# Aqui se registraran las herramientas del agente en futuras entregas:
-#   - Entrega 2: retriever de RAG, motor de reglas (SBR), modulo Bayes.
-#   - Entrega 3: modelo de vision (clasificacion de aguacate).
-TOOLS = []
+# Herramientas del agente: RAG (explica y fundamenta), SBR (orienta y clasifica) y
+# Bayes (cuantifica la incertidumbre). Siguiente: en la Entrega 3, el modelo de vision.
+TOOLS = [buscar_conocimiento, diagnosticar_sintomas, evaluar_huerto, estimar_probabilidades_sintomas]
+
+# Tope de pasos del agente (cada busqueda son 2: la llamada a la herramienta y su
+# resultado). Evita que el modelo se quede buscando en bucle.
+MAX_AGENT_STEPS = 10
+
+# Formato del historial: [{"role": "user" | "assistant", "content": "..."}]
+History = Sequence[dict]
 
 _llm = None
 
@@ -28,16 +60,30 @@ class AgentError(Exception):
     """Error de dominio: el agente no pudo generar una respuesta valida."""
 
 
+@dataclass
+class AgentReply:
+    """Respuesta final del agente y las fuentes de lo que consulto para darla."""
+
+    answer: str
+    sources: list[str] = field(default_factory=list)
+
+
 def build_llm() -> ChatGroq:
-    """Crea el modelo de lenguaje. Cambiar de proveedor aqui no afecta al resto."""
+    """Crea el modelo de lenguaje. Cambiar de proveedor aqui no afecta al resto.
+
+    timeout y max_retries son explicitos para que una peticion nunca se quede
+    colgada indefinidamente esperando a Groq.
+    """
     return ChatGroq(
         model=settings.llm_model,
         api_key=settings.groq_api_key,
         temperature=0.3,
+        timeout=settings.llm_timeout,
+        max_retries=settings.llm_max_retries,
     )
 
 
-def get_llm() -> ChatGroq:
+def get_llm() -> BaseChatModel:
     """Construye el modelo solo la primera vez que se usa (carga diferida)."""
     global _llm
     if _llm is None:
@@ -45,38 +91,214 @@ def get_llm() -> ChatGroq:
     return _llm
 
 
-def _to_lc_messages(history):
-    """Convierte el historial de memoria a mensajes de LangChain."""
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
-    for m in history:
+def build_messages(message: str, history: History | None = None) -> list[BaseMessage]:
+    """Arma la conversacion para el modelo: prompt del sistema + historial + mensaje nuevo."""
+    messages: list[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+    for m in history or []:
         if m["role"] == "user":
             messages.append(HumanMessage(content=m["content"]))
         else:
             messages.append(AIMessage(content=m["content"]))
+    messages.append(HumanMessage(content=message))
     return messages
 
 
-def chat(message: str, session_id: str = "default") -> str:
-    """Procesa un mensaje del usuario y devuelve la respuesta del agente.
+def build_agent():
+    """Agente con herramientas. El prompt del sistema ya viene como primer mensaje
+    (build_messages), por eso no se pasa system_prompt aqui."""
+    return create_agent(model=get_llm(), tools=TOOLS)
 
-    Lanza AgentError si el LLM falla o devuelve una respuesta vacia; en
-    ese caso no se guarda nada en la memoria de la sesion.
+
+def invoke_model(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Corre el agente y devuelve todos los mensajes (entrada, herramientas y respuesta).
+
+    Cualquier fallo (red, timeout, proveedor, demasiados pasos) se vuelve AgentError.
+    Un fallo de la base de conocimiento NO llega aqui: la herramienta lo convierte en
+    un aviso para el modelo (ver app/tools.py).
     """
-    history = memory.get(session_id)
-    lc_messages = _to_lc_messages(history)
-    lc_messages.append(HumanMessage(content=message))
-
     try:
-        response = get_llm().invoke(lc_messages)
+        result = build_agent().invoke(
+            {"messages": messages}, config={"recursion_limit": MAX_AGENT_STEPS}
+        )
     except Exception as exc:
-        logger.error("Fallo al invocar el LLM: %s", exc)
+        logger.error("Fallo al invocar el agente: %s", type(exc).__name__)
         raise AgentError("El LLM no respondio correctamente") from exc
+    return result["messages"]
 
-    answer = response.content
+
+def _content_to_text(content) -> str:
+    """Convierte el content de un mensaje a texto.
+
+    content puede ser un string o una lista de bloques (por ejemplo con tool-calling o
+    razonamiento): se juntan solo los bloques de texto y se ignora lo demas.
+    """
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content or []:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text", ""))
+    return "".join(parts)
+
+
+def extract_answer(result: BaseMessage | Sequence[BaseMessage]) -> str:
+    """Devuelve el texto de la respuesta FINAL al usuario.
+
+    Acepta un solo mensaje o la lista de mensajes que devolvera un agente con
+    herramientas; en ese caso usa el ultimo AIMessage. Los mensajes intermedios con
+    tool_calls y content vacio no cuentan como error: solo falla si la respuesta
+    final esta vacia.
+    """
+    messages = [result] if isinstance(result, BaseMessage) else list(result)
+    final = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+    if final is None:
+        logger.error("El LLM no devolvio ningun mensaje de respuesta")
+        raise AgentError("El LLM no devolvio ningun mensaje de respuesta")
+
+    answer = _content_to_text(final.content).strip()
     if not answer:
-        logger.error("El LLM devolvio una respuesta vacia")
+        logger.error("El LLM devolvio una respuesta final vacia")
         raise AgentError("El LLM devolvio una respuesta vacia")
-
-    memory.add(session_id, "user", message)
-    memory.add(session_id, "assistant", answer)
     return answer
+
+
+# Linea final con los documentos usados: "FUENTES: riego/x.md, suelo/y.md" o "FUENTES: ninguna"
+_SOURCES_LINE = re.compile(r"^[\s*_]*fuentes[\s*_]*:[\s*_]*(.*?)[\s*_]*$", re.IGNORECASE)
+
+
+def split_cited_sources(answer: str) -> tuple[str, set[str] | None]:
+    """Separa la linea final "FUENTES: ..." que pide el prompt del resto de la respuesta.
+
+    Devuelve (texto sin esa linea, archivos citados). Los archivos citados son None si
+    el modelo no escribio la linea, y un conjunto vacio si escribio "ninguna".
+    Tolera adornos de Markdown como **FUENTES:** o etiquetas entre `comillas`.
+    """
+    cited: set[str] | None = None
+    kept = []
+    for line in answer.splitlines():
+        match = _SOURCES_LINE.match(line)
+        if match is None:
+            kept.append(line)
+            continue
+        items = [i.strip(" `*_[]") for i in match.group(1).split(",")]
+        cited = (cited or set()) | {i for i in items if i and i.lower() != "ninguna"}
+    if cited is not None:
+        # El modelo a veces separa la linea con una regla de Markdown ("---"): se quita.
+        while kept and kept[-1].strip() in ("", "---", "***", "___"):
+            kept.pop()
+    return "\n".join(kept).strip(), cited
+
+
+# Sin linea FUENTES no se sabe que documentos uso el modelo: se toman los mas
+# relevantes de cada busqueda (el artifact viene ordenado por relevancia), no todos.
+MAX_DOCS_SIN_CITA = 2
+
+
+def extract_sources(messages: Sequence[BaseMessage], cited: set[str] | None = None) -> list[str]:
+    """Fuentes (sin repetir, en orden) de los fragmentos que devolvio buscar_conocimiento.
+
+    cited: archivos que el modelo dijo haber usado. Si es None (no escribio la linea
+    FUENTES) o cita algo que no se puede ubicar, se toman los MAX_DOCS_SIN_CITA
+    documentos mas relevantes de cada busqueda. Solo cuentan las busquedas de este
+    turno: el historial entra como texto, sin resultados de herramientas.
+    """
+    searches = [
+        list(m.artifact or [])
+        for m in messages
+        if isinstance(m, ToolMessage) and m.name == buscar_conocimiento.name
+    ]
+    fragments = [f for search in searches for f in search]
+    used = []
+    if cited:
+        # El modelo a veces acorta o altera la etiqueta ("antracnosis.md", "roña.md"),
+        # por eso se compara solo el nombre del archivo, sin carpeta ni acentos.
+        keys = {_doc_key(c) for c in cited}
+        used = [f for f in fragments if _doc_key(f.get("archivo", "")) in keys]
+    if cited is not None and not cited:
+        fragments = []  # "FUENTES: ninguna"
+    elif not used:
+        fragments = [f for search in searches for f in _top_documents(search, MAX_DOCS_SIN_CITA)]
+    else:
+        fragments = used
+
+    sources: list[str] = []
+    seen: set[str] = set()
+    for fragment in fragments:
+        for source in fragment.get("fuentes", []):
+            key = _source_key(source)
+            if key not in seen:
+                seen.add(key)
+                sources.append(source)
+    return sources
+
+
+def _top_documents(fragments: list[dict], n: int) -> list[dict]:
+    """Fragmentos de los n primeros documentos distintos (en orden de relevancia)."""
+    docs: list[str] = []
+    kept = []
+    for f in fragments:
+        doc = f.get("archivo", "")
+        if doc not in docs:
+            if len(docs) == n:
+                continue
+            docs.append(doc)
+        kept.append(f)
+    return kept
+
+
+_AUTHOR_YEAR = re.compile(r"^(.*?\(\d{4}\))")
+
+
+def _source_key(source: str) -> str:
+    """Clave para detectar la misma fuente escrita distinto en dos documentos.
+
+    Con autor y año ("Ramirez Davila et al. (2013), ... - Trips y roña" y
+    "... (2013), ... - Trips en aguacate") la clave es "autor (año)"; sin año (paginas
+    web como UC IPM, con un titulo distinto por pagina) es el texto completo. En ambos
+    casos sin acentos, mayusculas ni espacios de mas.
+    """
+    match = _AUTHOR_YEAR.match(source)
+    base = match.group(1) if match else source
+    base = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode().lower()
+    return " ".join(base.split())
+
+
+# Etiquetas de fragmentos que el modelo a veces copia al texto aunque el prompt lo
+# prohibe: [enfermedades/rona.md] o 【enfermedades/rona.md】. No toca los enlaces
+# Markdown [texto](url).
+_LABEL = re.compile(r"[ \t]*(?:【[^】\n]*】|\[[\w-]+(?:/[\w.-]+)+\.md\](?!\())")
+
+
+def strip_labels(answer: str) -> str:
+    """Quita del texto final las etiquetas de fragmentos que no deben llegar al productor."""
+    return _LABEL.sub("", answer).strip()
+
+
+def _doc_key(label: str) -> str:
+    """'enfermedades/Roña.md' -> 'rona': nombre del archivo sin carpeta, extension ni acentos."""
+    name = label.replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+    name = name.removesuffix(".md")
+    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+
+
+def chat_with_sources(message: str, history: History | None = None) -> AgentReply:
+    """Responde un mensaje usando el historial que recibe y devuelve sus fuentes.
+
+    history: mensajes anteriores [{"role": "user" | "assistant", "content": ...}].
+    Lanza AgentError si el LLM falla o la respuesta final viene vacia.
+    """
+    messages = build_messages(message, history)
+    result = invoke_model(messages)
+    answer, cited = split_cited_sources(extract_answer(result))
+    answer = strip_labels(answer)
+    if not answer:
+        logger.error("El LLM solo devolvio la linea de fuentes")
+        raise AgentError("El LLM devolvio una respuesta vacia")
+    return AgentReply(answer=answer, sources=extract_sources(result, cited))
+
+
+def chat(message: str, history: History | None = None) -> str:
+    """Igual que chat_with_sources, pero solo el texto. No guarda nada."""
+    return chat_with_sources(message, history).answer
