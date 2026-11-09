@@ -60,14 +60,25 @@ def buscar_conocimiento(consulta: str) -> tuple[str, list[dict]]:
 # --- Sistema basado en reglas (SBR) ---
 
 # Los esquemas y descripciones de las herramientas viajan en cada llamada al LLM:
-# se mantienen cortos (ver app/prompt.py).
+# se mantienen cortos (ver app/prompt.py). El catalogo de sintomas con su descripcion
+# va UNA sola vez, en el esquema de Bayes (la herramienta de varios sintomas, donde
+# importa mas traducir bien lo que describe el productor); diagnosticar_sintomas
+# remite a el. Probado: dejar solo los codigos, sin descripciones, hacia que el modelo
+# omitiera sintomas que el productor si menciono.
 CodigoSintoma = Literal[tuple(reglas.SINTOMAS)]
 _CATALOGO = "; ".join(f"{codigo}: {texto}" for codigo, texto in reglas.SINTOMAS.items())
-NO_DOSIS = "Recuerda: orientacion, no tratamiento. No des dosis, productos ni recetas."
+NO_DOSIS = "Orientativo: confirma con un tecnico. No des dosis, productos ni recetas."
 
 
 class EntradaSintomas(BaseModel):
-    sintomas: list[CodigoSintoma] = Field(description="Codigos de los sintomas mencionados. " + _CATALOGO)
+    sintomas: list[CodigoSintoma] = Field(
+        description="Codigos de TODOS los sintomas mencionados (catalogo descrito en estimar_probabilidades_sintomas)."
+    )
+    otros_sintomas: str | None = Field(default=None, description="Sintomas sin codigo.")
+
+
+class EntradaSintomasBayes(BaseModel):
+    sintomas: list[CodigoSintoma] = Field(description="Codigos de TODOS los sintomas mencionados. " + _CATALOGO)
     otros_sintomas: str | None = Field(default=None, description="Sintomas que no encajan en ningun codigo.")
 
 
@@ -81,22 +92,35 @@ class EntradaHuerto(BaseModel):
 
 
 def formatear_diagnostico(diag: reglas.Diagnostico) -> str:
-    lineas = ["RESULTADO DEL SISTEMA DE REGLAS (diagnostico orientativo por sintomas)"]
+    """Lo esencial para redactar: causa, gravedad, siguiente paso y avisos especificos.
+
+    La explicacion de cada causa la da buscar_conocimiento; el aviso generico de
+    consultar a un tecnico se resume en NO_DOSIS. El detalle completo va en el artifact.
+    """
+    lineas = ["REGLAS (orientativo):"]
     for c in diag.coincidencias:
         con = c.regla.entonces
-        lineas.append(f"\nCausa probable: {con.causa} [gravedad {con.gravedad}]")
-        lineas.append(f"- Por que: {con.explicacion}")
-        if c.apoyos:
-            lineas.append(f"- Lo refuerza: {', '.join(reglas.SINTOMAS[a] for a in c.apoyos)}")
-        lineas.append(f"- Siguiente paso: {con.recomendacion}")
-        lineas.append(f"- Para explicarla, busca en la base de conocimiento ({con.documento}).")
+        lineas.append(f"- Causa probable: {con.causa} [gravedad {con.gravedad}]. "
+                      f"Siguiente paso: {con.recomendacion} Para explicarla: {con.documento}")
     for p in diag.parciales:
         faltan = "; ".join(reglas.SINTOMAS[f] for f in p.faltan)
-        lineas.append(f"\nPosible (datos incompletos): {p.regla.entonces.causa}. Faltaria confirmar: {faltan}.")
-    lineas.append("\nAvisos:")
-    lineas += [f"- {a}" for a in diag.avisos]
+        lineas.append(f"- Posible (datos incompletos): {p.regla.entonces.causa}. Faltaria confirmar: {faltan}.")
+    lineas += [f"- {a}" for a in diag.avisos if a != reglas.CONSULTA_TECNICO]
     lineas.append(NO_DOSIS)
     return "\n".join(lineas)
+
+
+def detalle_diagnostico(diag: reglas.Diagnostico) -> dict:
+    """Artifact del SBR (el modelo no lo ve): reglas disparadas, apoyos y avisos completos."""
+    return {
+        "coincidencias": [
+            {"regla": c.regla.id, "causa": c.regla.entonces.causa, "explicacion": c.regla.entonces.explicacion,
+             "apoyos": c.apoyos, "documento": c.regla.entonces.documento}
+            for c in diag.coincidencias
+        ],
+        "parciales": [{"regla": p.regla.id, "faltan": p.faltan} for p in diag.parciales],
+        "avisos": diag.avisos,
+    }
 
 
 def formatear_evaluacion(ev: reglas.Evaluacion) -> str:
@@ -112,13 +136,14 @@ def formatear_evaluacion(ev: reglas.Evaluacion) -> str:
     return "\n".join(lineas)
 
 
-@tool(args_schema=EntradaSintomas)
-def diagnosticar_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> str:
+@tool(args_schema=EntradaSintomas, response_format="content_and_artifact")
+def diagnosticar_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> tuple[str, dict]:
     """Orienta la causa probable de SINTOMAS que el productor observa (fruto, hojas, hueso, raices, arbol) con reglas fijas. Indica si los datos son incompletos o ambiguos y cuando acudir a un tecnico. No da tratamientos."""
     try:
-        return formatear_diagnostico(reglas.diagnosticar(sintomas, otros_sintomas))
+        diag = reglas.diagnosticar(sintomas, otros_sintomas)
     except ValueError as exc:
-        return f"ERROR: {exc}. Usa solo los codigos del catalogo."
+        return f"ERROR: {exc}. Usa solo los codigos del catalogo.", {}
+    return formatear_diagnostico(diag), detalle_diagnostico(diag)
 
 
 @tool(args_schema=EntradaHuerto)
@@ -151,34 +176,54 @@ VEREDICTOS = {
 }
 
 
+# El aviso de que las probabilidades son orientativas lo resume la ultima linea; los
+# avisos especificos (no concluyente, causa grave, otra causa) si se pasan al modelo.
+_AVISO_GENERICO_BAYES = "Probabilidades orientativas y provisionales"
+
+
 def formatear_estimacion(est: bayes.Estimacion, mostrar: int = 4) -> str:
-    """Causas ordenadas por probabilidad; se omiten las que quedan por debajo de 1 %."""
-    lineas = ["RESULTADO PROBABILISTICO (Teorema de Bayes: P(causa|sintomas) proporcional a P(sintomas|causa) x P(causa))"]
-    if est.sintomas:
-        lineas.append("Sintomas usados: " + "; ".join(reglas.SINTOMAS[s] for s in est.sintomas))
+    """Causas ordenadas por probabilidad (sin las menores a 1 %), veredicto y avisos clave."""
+    lineas = ["Teorema de Bayes, P(causa|sintomas), valores orientativos:"]
     for t in est.terminos[:mostrar]:
         if t.posterior < 0.01:
             break
         lineas.append(f"- {bayes.CAUSAS[t.causa].causa}: {t.posterior:.0%}")
     lineas.append(f"Veredicto: {VEREDICTOS[est.veredicto]}")
     if est.terminos:
-        lineas.append(
-            "Al responder, menciona cada porcentaje junto a su causa, tal cual; las causas que "
-            "no aparecen en esta lista no tienen un porcentaje calculado."
-        )
-    lineas.append("\nAvisos:")
-    lineas += [f"- {a}" for a in est.avisos]
-    lineas.append(NO_DOSIS)
+        lineas.append("Cita cada porcentaje con su causa, tal cual; las causas que no estan aqui no tienen porcentaje.")
+        # Igual que las reglas: senala que documento explica la causa principal, para que
+        # el modelo la fundamente con buscar_conocimiento en lugar de quedarse en el numero.
+        documento = bayes.CAUSAS[est.principal.causa].documento
+        if documento:
+            lineas.append(f"Para explicar la causa principal, busca en la base de conocimiento ({documento}).")
+    lineas += [f"- {a}" for a in est.avisos if not a.startswith(_AVISO_GENERICO_BAYES)]
+    lineas.append("Probabilidades orientativas, no un diagnostico. " + NO_DOSIS)
     return "\n".join(lineas)
 
 
-@tool(args_schema=EntradaSintomas)
-def estimar_probabilidades_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> str:
+def detalle_estimacion(est: bayes.Estimacion) -> dict:
+    """Artifact de Bayes (el modelo no lo ve): el calculo completo, causa por causa."""
+    return {
+        "sintomas": est.sintomas,
+        "evidencia_P(S)": est.evidencia,
+        "veredicto": est.veredicto,
+        "terminos": [
+            {"causa": t.causa, "prior_P(C)": t.prior, "verosimilitud_P(S|C)": t.verosimilitud,
+             "numerador_P(S|C)P(C)": t.no_normalizado, "posterior_P(C|S)": t.posterior}
+            for t in est.terminos
+        ],
+        "avisos": est.avisos,
+    }
+
+
+@tool(args_schema=EntradaSintomasBayes, response_format="content_and_artifact")
+def estimar_probabilidades_sintomas(sintomas: list[str], otros_sintomas: str | None = None) -> tuple[str, dict]:
     """Estima con el Teorema de Bayes la PROBABILIDAD de cada causa (antracnosis, rona, trips, acaros, barrenador, Phytophthora u otra) cuando hay VARIOS sintomas o son AMBIGUOS. Devuelve las causas de mayor a menor probabilidad y si el resultado es concluyente. Valores orientativos; no da tratamientos."""
     try:
-        texto = formatear_estimacion(bayes.estimar(sintomas))
+        est = bayes.estimar(sintomas)
     except ValueError as exc:
-        return f"ERROR: {exc}. Usa solo los codigos del catalogo."
+        return f"ERROR: {exc}. Usa solo los codigos del catalogo.", {}
+    texto = formatear_estimacion(est)
     if otros_sintomas and otros_sintomas.strip():
         texto += f"\nNo evaluados (fuera del catalogo): {otros_sintomas.strip()}."
-    return texto
+    return texto, detalle_estimacion(est)

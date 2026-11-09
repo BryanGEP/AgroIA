@@ -191,33 +191,89 @@ def split_cited_sources(answer: str) -> tuple[str, set[str] | None]:
     return "\n".join(kept).strip(), cited
 
 
+# Sin linea FUENTES no se sabe que documentos uso el modelo: se toman los mas
+# relevantes de cada busqueda (el artifact viene ordenado por relevancia), no todos.
+MAX_DOCS_SIN_CITA = 2
+
+
 def extract_sources(messages: Sequence[BaseMessage], cited: set[str] | None = None) -> list[str]:
     """Fuentes (sin repetir, en orden) de los fragmentos que devolvio buscar_conocimiento.
 
     cited: archivos que el modelo dijo haber usado. Si es None (no escribio la linea
-    FUENTES), se toman todos los fragmentos consultados. Solo cuentan las busquedas de
-    este turno: el historial entra como texto, sin resultados de herramientas.
+    FUENTES) o cita algo que no se puede ubicar, se toman los MAX_DOCS_SIN_CITA
+    documentos mas relevantes de cada busqueda. Solo cuentan las busquedas de este
+    turno: el historial entra como texto, sin resultados de herramientas.
     """
-    fragments = [
-        fragment
+    searches = [
+        list(m.artifact or [])
         for m in messages
         if isinstance(m, ToolMessage) and m.name == buscar_conocimiento.name
-        for fragment in m.artifact or []
     ]
-    if cited is not None:
+    fragments = [f for search in searches for f in search]
+    used = []
+    if cited:
         # El modelo a veces acorta o altera la etiqueta ("antracnosis.md", "roña.md"),
         # por eso se compara solo el nombre del archivo, sin carpeta ni acentos.
         keys = {_doc_key(c) for c in cited}
         used = [f for f in fragments if _doc_key(f.get("archivo", "")) in keys]
-        # Citó algo que no se puede ubicar: mejor todas las consultadas que ninguna.
-        fragments = used if used or not cited else fragments
+    if cited is not None and not cited:
+        fragments = []  # "FUENTES: ninguna"
+    elif not used:
+        fragments = [f for search in searches for f in _top_documents(search, MAX_DOCS_SIN_CITA)]
+    else:
+        fragments = used
 
     sources: list[str] = []
+    seen: set[str] = set()
     for fragment in fragments:
         for source in fragment.get("fuentes", []):
-            if source not in sources:
+            key = _source_key(source)
+            if key not in seen:
+                seen.add(key)
                 sources.append(source)
     return sources
+
+
+def _top_documents(fragments: list[dict], n: int) -> list[dict]:
+    """Fragmentos de los n primeros documentos distintos (en orden de relevancia)."""
+    docs: list[str] = []
+    kept = []
+    for f in fragments:
+        doc = f.get("archivo", "")
+        if doc not in docs:
+            if len(docs) == n:
+                continue
+            docs.append(doc)
+        kept.append(f)
+    return kept
+
+
+_AUTHOR_YEAR = re.compile(r"^(.*?\(\d{4}\))")
+
+
+def _source_key(source: str) -> str:
+    """Clave para detectar la misma fuente escrita distinto en dos documentos.
+
+    Con autor y año ("Ramirez Davila et al. (2013), ... - Trips y roña" y
+    "... (2013), ... - Trips en aguacate") la clave es "autor (año)"; sin año (paginas
+    web como UC IPM, con un titulo distinto por pagina) es el texto completo. En ambos
+    casos sin acentos, mayusculas ni espacios de mas.
+    """
+    match = _AUTHOR_YEAR.match(source)
+    base = match.group(1) if match else source
+    base = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode().lower()
+    return " ".join(base.split())
+
+
+# Etiquetas de fragmentos que el modelo a veces copia al texto aunque el prompt lo
+# prohibe: [enfermedades/rona.md] o 【enfermedades/rona.md】. No toca los enlaces
+# Markdown [texto](url).
+_LABEL = re.compile(r"[ \t]*(?:【[^】\n]*】|\[[\w-]+(?:/[\w.-]+)+\.md\](?!\())")
+
+
+def strip_labels(answer: str) -> str:
+    """Quita del texto final las etiquetas de fragmentos que no deben llegar al productor."""
+    return _LABEL.sub("", answer).strip()
 
 
 def _doc_key(label: str) -> str:
@@ -236,6 +292,7 @@ def chat_with_sources(message: str, history: History | None = None) -> AgentRepl
     messages = build_messages(message, history)
     result = invoke_model(messages)
     answer, cited = split_cited_sources(extract_answer(result))
+    answer = strip_labels(answer)
     if not answer:
         logger.error("El LLM solo devolvio la linea de fuentes")
         raise AgentError("El LLM devolvio una respuesta vacia")

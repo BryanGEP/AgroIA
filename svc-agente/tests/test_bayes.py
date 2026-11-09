@@ -205,7 +205,22 @@ def test_herramienta_devuelve_porcentajes_ordenados_y_veredicto():
 
 def test_herramienta_con_codigo_inventado_devuelve_error():
     # El esquema rechaza el codigo antes de llamar a la funcion; si llega, avisa con ERROR.
-    assert estimar_probabilidades_sintomas.func(["hojas_moradas"]).startswith("ERROR")
+    texto, detalle = estimar_probabilidades_sintomas.func(["hojas_moradas"])
+    assert texto.startswith("ERROR") and detalle == {}
+
+
+def test_el_calculo_completo_va_en_el_artifact():
+    llamada_tool = {"type": "tool_call", "id": "1", "name": "estimar_probabilidades_sintomas",
+                    "args": {"sintomas": ["fruto_manchas_hundidas_oscuras", "costras_corchosas_levantadas"]}}
+
+    mensaje = estimar_probabilidades_sintomas.invoke(llamada_tool)
+    terminos = mensaje.artifact["terminos"]
+
+    # El modelo ve solo porcentajes; el artifact guarda prior, verosimilitud y posterior
+    assert "prior" not in mensaje.content and "verosimilitud" not in mensaje.content
+    assert {"prior_P(C)", "verosimilitud_P(S|C)", "posterior_P(C|S)"} <= set(terminos[0])
+    assert sum(t["posterior_P(C|S)"] for t in terminos) == pytest.approx(1.0)
+    assert mensaje.artifact["evidencia_P(S)"] > 0
 
 
 def test_codigo_inventado_por_el_modelo_no_rompe_el_chat():
